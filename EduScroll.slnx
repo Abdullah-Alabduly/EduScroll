@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EduScroll.Application/EduScroll.Application.csproj" />
+    <Project Path="src/EduScroll.Domain/EduScroll.Domain.csproj" />
+    <Project Path="src/EduScroll.Infrastructure/EduScroll.Infrastructure.csproj" />
+    <Project Path="src/EduScroll.Web/EduScroll.Web.csproj" />
+  </Folder>
+</Solution>

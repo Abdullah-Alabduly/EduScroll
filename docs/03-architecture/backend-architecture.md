@@ -1,24 +1,25 @@
 # EduScroll — Backend Architecture (Clean Architecture)
 
-- **Document Version:** 0.1
-- **Status:** Draft — Pending Product Owner Review & Approval
+- **Document Version:** 1.0
+- **Status:** Updated — Sprint 1 Backend Foundation Implemented
 - **Work Package:** WP-05 (Backend Conceptual Architecture)
 - **Last Updated:** 2026-11-17
 
 ---
 
-## 1. Existing Repository Baseline & Conflicts (`CONF-001`–`CONF-003`)
+## 1. Repository Baseline & Sprint 1 Resolution (`CONF-001`–`CONF-004`)
 
-Inspection of `EduScroll.slnx` confirmed four `net10.0` projects:
-- `src/EduScroll.Domain` (zero project references)
-- `src/EduScroll.Application` (references `EduScroll.Domain` and `Microsoft.Extensions.DependencyInjection.Abstractions` `10.0.14`; contains `Interfaces/Pdf/IPdfTextExtractor.cs`)
-- `src/EduScroll.Infrastructure` (references `EduScroll.Domain` and `EduScroll.Application`)
-- `src/EduScroll.Web` (references `EduScroll.Application` and `EduScroll.Infrastructure`; currently scaffolded as ASP.NET Core MVC Razor app)
+Following commit `b3a8f9e` (removing the legacy MVC scaffold) and Product Owner Sprint 1 approval, the backend solution was established under `backend/EduScroll.sln` with four `net10.0` source projects and four xUnit test projects:
+- `backend/src/EduScroll.Domain` (zero project or framework dependencies)
+- `backend/src/EduScroll.Application` (references `EduScroll.Domain` and `Microsoft.Extensions.DependencyInjection.Abstractions` `10.0.14`)
+- `backend/src/EduScroll.Infrastructure` (references `EduScroll.Domain` and `EduScroll.Application`)
+- `backend/src/EduScroll.API` (pure ASP.NET Core 10 Web API composition root; references `EduScroll.Application` and `EduScroll.Infrastructure`)
 
-**Unresolved Conflicts Requiring Product Owner Decision Before Sprint 1:**
-1. **`CONF-001` (`ADR-001`, `TBD-001`):** `EduScroll.Web` is an MVC Razor project (`AddControllersWithViews()`, `Views/`, Bootstrap, jQuery) rather than an API-only project. **PROPOSED:** Convert/replace with pure ASP.NET Core 10 Web API (`EduScroll.Api` or stripped `EduScroll.Web`).
-2. **`CONF-002` (`ADR-002`, `TBD-002`):** `IPdfTextExtractor` sits in `EduScroll.Application`, conflicting with Constraint #3 (PDF text extraction happens locally in Flutter). **PROPOSED:** Remove/defer `IPdfTextExtractor` unless server-side fallback is approved.
-3. **`CONF-003`:** `src/EduScroll.Web/appsettings.json` nests `"Ollama"` inside `"ConnectionStrings"`. **PROPOSED:** Move to a dedicated top-level `"AiProvider"` / `"Ollama"` options section bound via Options pattern in Sprint 1.
+**Resolved Conflicts from Sprint 0:**
+1. **`CONF-001` (`ADR-001` — Resolved):** Replaced legacy MVC project with pure ASP.NET Core 10 Web API (`EduScroll.API`).
+2. **`CONF-002` (`ADR-002` — Resolved):** No backend `IPdfTextExtractor` created; PDF extraction remains client-side in Flutter per Constraint #3.
+3. **`CONF-003` (Resolved):** Legacy malformed `appsettings.json` removed; Sprint 1 uses strongly-typed, startup-validated `ApiMetadataOptions` and `CorsOptions` (`backend-foundation-guide.md`).
+4. **`CONF-004` (Resolved):** Added `EduScroll.Domain.Tests`, `EduScroll.Application.Tests`, `EduScroll.Architecture.Tests`, and `EduScroll.API.IntegrationTests` under `backend/tests/`.
 
 ---
 
@@ -26,7 +27,7 @@ Inspection of `EduScroll.slnx` confirmed four `net10.0` projects:
 
 ```mermaid
 flowchart LR
-    API["API / Presentation (EduScroll.Api or .Web)"] -->|Calls Use Cases| APP["Application (EduScroll.Application)"]
+    API["API / Presentation (EduScroll.API)"] -->|Calls Use Cases| APP["Application (EduScroll.Application)"]
     INFRA["Infrastructure (EduScroll.Infrastructure)"] -->|Implements Ports| APP
     INFRA -->|Persists / Maps| DOM["Domain (EduScroll.Domain)"]
     APP -->|Uses Entities & Rules| DOM
@@ -56,7 +57,7 @@ flowchart LR
   - Concrete `IVideoDiscoveryService` using YouTube Data API v3.
   - Background worker execution (`BackgroundService` / Channel or lightweight PostgreSQL job queue per `ADR-004` — avoiding heavy enterprise brokers per Constraint #15).
 
-### 2.4 API (`EduScroll.Api` / `EduScroll.Web`)
+### 2.4 API (`EduScroll.API`)
 - **Dependency Rule (**CONFIRMED** — Constraint #9):** Composition root (`Program.cs` registering `AddApplication()` and `AddInfrastructure()`), thin controllers/endpoints, auth middleware, rate-limiting middleware, global exception-to-`ProblemDetails` handler, health checks, and OpenAPI generation.
 - **Must NOT Own:** Business rules, EF Core queries, SSRF logic, ranking logic, or direct calls to Ollama/YouTube.
 

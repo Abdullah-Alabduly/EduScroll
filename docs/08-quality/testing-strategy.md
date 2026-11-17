@@ -30,7 +30,7 @@
 
 | Sprint | Primary Test Activities |
 |---|---|
-| **S1 — Backend Foundation** | Architecture dependency tests (`NFR-005`), health endpoint & `ProblemDetails` middleware API tests, CI secret scan setup. |
+| **S1 — Backend Foundation** | Domain/Application isolation tests, Architecture dependency tests (`NFR-005`), health endpoint, OpenAPI, CORS, host-filtering & `ProblemDetails` integration tests (`EduScroll.API.IntegrationTests`). *(CI pipeline & secret-scan workflow deferred until remote repository/CI host is connected.)* |
 | **S2 — Database & Authentication** | PostgreSQL migration & repository integration tests; Identity registration/login/refresh/revocation API tests; `401`/rate-limit security checks. |
 | **S3 — Flutter Foundation** | Flutter widget tests for auth state & routing guards; secure storage integration spike; CI Flutter test/analyze pipeline. |
 | **S4 — Source Ingestion & Extraction** | Flutter local PDF extraction tests (valid, empty, oversized, encrypted); backend SSRF unit/integration test suite (loopback, RFC1918, metadata, redirects); URL/text validation API tests. |

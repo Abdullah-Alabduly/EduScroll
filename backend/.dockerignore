@@ -1,0 +1,30 @@
+# Build & IDE artifacts
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+*.user
+*.suo
+TestResults/
+coverage/
+
+# Version control & docs
+.git/
+.gitignore
+docs/
+README.md
+*.md
+
+# Tests (not needed in production runtime image)
+tests/
+
+# Local secrets & environment-specific dev files
+**/.env
+**/.env.*
+**/secrets.json
+**/appsettings.Development.json
+**/appsettings.Testing.json
+**/appsettings.Example.json
+**/appsettings.Local.json
+**/appsettings.*.local.json

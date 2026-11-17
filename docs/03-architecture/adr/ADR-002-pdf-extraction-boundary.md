@@ -1,6 +1,6 @@
 # ADR-002: PDF Text Extraction Boundary (`IPdfTextExtractor` Conflict)
 
-- **Status:** PROPOSED — Pending Product Owner Approval (`TBD-002`, `CONF-002`)
+- **Status:** APPROVED — Enforced in Sprint 1 (no backend PDF extractor created)
 - **Date:** 2026-11-17
 
 ## 1. Decision Description

@@ -1,0 +1,26 @@
+# Build & test outputs
+bin/
+obj/
+TestResults/
+*.trx
+coverage/
+
+# IDE & editor files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Environment & secrets (never commit secrets)
+.env
+.env.*
+secrets.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+
+# OS files
+.DS_Store
+Thumbs.db

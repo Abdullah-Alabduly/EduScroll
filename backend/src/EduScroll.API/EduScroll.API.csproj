@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\EduScroll.Application\EduScroll.Application.csproj" />
+    <ProjectReference Include="..\EduScroll.Infrastructure\EduScroll.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.Testing.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.Example.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+</Project>

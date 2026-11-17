@@ -1,6 +1,6 @@
 # ADR-001: Resolve `EduScroll.Web` MVC Scaffold vs. ASP.NET Core 10 Web API
 
-- **Status:** PROPOSED — Pending Product Owner Approval (`TBD-001`, `CONF-001`)
+- **Status:** APPROVED — Implemented in Sprint 1 (`EduScroll.API` under `backend/`)
 - **Date:** 2026-11-17
 
 ## 1. Decision Description

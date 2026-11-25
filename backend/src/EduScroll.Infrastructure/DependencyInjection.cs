@@ -1,15 +1,24 @@
+using EduScroll.Application.Authentication.Ports;
+using EduScroll.Application.Health;
+using EduScroll.Infrastructure.Authentication;
+using EduScroll.Infrastructure.Configuration;
+using EduScroll.Infrastructure.Identity;
+using EduScroll.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace EduScroll.Infrastructure;
 
 public static class DependencyInjection
 {
     /// <summary>
-    /// Registers Infrastructure layer services.
-    /// Database (PostgreSQL/EF Core), Identity/JWT, Web Content Acquisition, AI Provider,
-    /// and YouTube Data API integrations will be wired here in Sprints 2–6.
+    /// Registers Infrastructure layer services: SQL Server EF Core persistence,
+    /// ASP.NET Core Identity, JWT Bearer authentication, and readiness probes.
     /// </summary>
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
@@ -19,6 +28,77 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.TryAddSingleton(TimeProvider.System);
+
+        services.AddOptionsWithValidateOnStart<DatabaseOptions>()
+            .BindConfiguration(DatabaseOptions.SectionName);
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<DatabaseOptions>, DatabaseOptionsValidator>());
+
+        services.AddOptionsWithValidateOnStart<JwtOptions>()
+            .BindConfiguration(JwtOptions.SectionName);
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>());
+
+        if (!services.Any(sd => sd.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)))
+        {
+            services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
+            {
+                var dbOptions = serviceProvider.GetRequiredService<IOptions<DatabaseOptions>>().Value;
+                options.UseSqlServer(dbOptions.DefaultConnection, sqlOptions =>
+                {
+                    sqlOptions.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName);
+                    sqlOptions.CommandTimeout(30);
+                    sqlOptions.EnableRetryOnFailure(
+                        maxRetryCount: 3,
+                        maxRetryDelay: TimeSpan.FromSeconds(5),
+                        errorNumbersToAdd: null);
+                });
+            });
+        }
+
+        if (!services.Any(sd => sd.ServiceType == typeof(UserManager<ApplicationUser>)))
+        {
+            services.AddIdentityCore<ApplicationUser>(options =>
+                {
+                    options.Password.RequiredLength = 8;
+                    options.Password.RequireDigit = true;
+                    options.Password.RequireLowercase = true;
+                    options.Password.RequireUppercase = true;
+                    options.Password.RequireNonAlphanumeric = true;
+                    options.Password.RequiredUniqueChars = 6;
+
+                    options.User.RequireUniqueEmail = true;
+                    options.User.AllowedUserNameCharacters =
+                        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-";
+
+                    options.Lockout.AllowedForNewUsers = true;
+                    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+                    options.Lockout.MaxFailedAccessAttempts = 5;
+                })
+                .AddRoles<IdentityRole<Guid>>()
+                .AddEntityFrameworkStores<ApplicationDbContext>();
+        }
+
+        if (!services.Any(sd => sd.ServiceType == typeof(JwtBearerHandler)))
+        {
+            services.AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+                })
+                .AddJwtBearer();
+        }
+
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>());
+
+        services.AddAuthorization();
+
+        services.TryAddScoped<IUserIdentityStore, IdentityUserStore>();
+        services.TryAddScoped<IRefreshTokenStore, RefreshTokenStore>();
+        services.TryAddSingleton<ITokenService, JwtTokenService>();
+        services.TryAddScoped<IDatabaseReadinessProbe, SqlServerReadinessProbe>();
 
         return services;
     }

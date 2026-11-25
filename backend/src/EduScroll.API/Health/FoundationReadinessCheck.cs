@@ -5,8 +5,8 @@ using Microsoft.Extensions.Options;
 namespace EduScroll.API.Health;
 
 /// <summary>
-/// Sprint 1 readiness probe verifying core foundation dependencies actually implemented in this sprint.
-/// Does NOT check PostgreSQL yet; Sprint 2 will register real database readiness checks here.
+/// Readiness probe verifying core API foundation options and runtime services.
+/// SQL Server database connectivity is verified separately by <see cref="DatabaseReadinessCheck"/>.
 /// </summary>
 public sealed class FoundationReadinessCheck(
     TimeProvider timeProvider,

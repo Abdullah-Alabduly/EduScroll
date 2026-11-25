@@ -24,7 +24,7 @@ public sealed class HealthController(HealthCheckService healthCheckService) : Co
 
     [HttpGet("ready")]
     [EndpointSummary("Readiness probe")]
-    [EndpointDescription("Indicates whether the EduScroll API foundation is ready to accept traffic based on dependencies active in Sprint 1.")]
+    [EndpointDescription("Indicates whether the EduScroll API and its backing SQL Server database are ready to accept traffic.")]
     [ProducesResponseType(typeof(HealthStatusResponse), StatusCodes.Status200OK, "application/json")]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable, "application/problem+json")]
     public async Task<IActionResult> Ready(CancellationToken cancellationToken)

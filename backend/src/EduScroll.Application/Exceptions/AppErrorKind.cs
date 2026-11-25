@@ -9,5 +9,6 @@ public enum AppErrorKind
     NotFound = 2,
     Conflict = 3,
     Forbidden = 4,
-    ExternalDependency = 5
+    ExternalDependency = 5,
+    Unauthorized = 6
 }

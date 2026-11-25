@@ -1,26 +1,27 @@
 # EduScroll — Flutter Client Architecture
 
-- **Document Version:** 0.1
-- **Status:** Draft — Pending Product Owner Review & Approval
-- **Work Package:** WP-05 (Flutter Conceptual Architecture)
-- **Last Updated:** 2026-11-17
+- **Document Version:** 1.0
+- **Status:** Implemented — Sprint 3 Flutter Foundation & Authentication Integration (`mobile/`)
+- **Work Package:** WP-05 / Sprint 3
+- **Last Updated:** 2026-11-25
 
-> **Note:** No Flutter project exists in the repository yet. No specific third-party Dart/Flutter packages are assumed selected; package selection is deferred to Sprint 3 spikes (`TBD-022`, `ADR-005`, `ADR-006`).
+> **Sprint 3 Baseline:** Implemented under `mobile/` with **Flutter 3.41.4 / Dart 3.11.1**, **Riverpod (`flutter_riverpod`)**, **Dio (`dio`)**, **GoRouter (`go_router`)**, and **`flutter_secure_storage`**. Setup, Android emulator/device networking, and test instructions are maintained in [mobile/README.md](file:///C:/Users/Obad/Desktop/EduScroll/mobile/README.md).
 
 ---
 
-## 1. Conceptual Feature-First Layered Architecture (**PROPOSED**)
-
-To keep the MVP modular and testable without over-engineering (Constraint #15), a **feature-first structure with clean internal separation** is proposed:
+## 1. Feature-First Layered Architecture (Implemented in Sprint 3)
 
 ```text
-lib/
-├── core/         # Config, HTTP client wrapper, auth interceptor, secure storage, error mapping, theme
-├── features/
-│   ├── auth/     # Sign-in, registration, session state
-│   ├── sources/  # PDF picker, local PDF extractor, URL submission, processing status, source library/detail
-│   └── feed/     # Vertical short-video feed, compliant YouTube player wrapper, (conditional bookmarks)
-└── app.dart      # Router & root composition
+mobile/lib/
+├── main.dart                  # AppConfig.fromEnvironment() + ProviderScope entry
+├── app/                       # Root app, environment config, GoRouter guards, Material 3 light/dark themes
+├── core/                      # ApiEndpoints, Dio client + CorrelationId & Auth interceptors,
+│                              # SecureTokenStorage, ProblemDetails ErrorMapper, Validators, shared widgets
+└── features/
+    ├── authentication/        # Domain entities/repo, Data models/AuthApiService/SessionRefresher,
+    │                          # Riverpod AuthController & Splash/Login/Register screens
+    ├── home/                  # Authenticated Home foundation screen (Sprint 4+ feed placeholder)
+    └── profile/               # Authenticated GET /api/v1/auth/me Profile screen
 ```
 
 Within each feature: `presentation/` (widgets, screens, view state) -> `application/` (state notifiers/controllers) -> `data/` (API data sources, DTO mappers, local platform services).

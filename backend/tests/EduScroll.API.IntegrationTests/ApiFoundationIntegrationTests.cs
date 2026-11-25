@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using EduScroll.API.IntegrationTests.Infrastructure;
 using EduScroll.API.Middleware;
 using EduScroll.Application.Exceptions;
 using EduScroll.Domain.Exceptions;
 using EduScroll.Infrastructure;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -25,14 +27,12 @@ public sealed class ApiFoundationIntegrationTests : IClassFixture<ApiFoundationI
         _testingFactory = testingFactory;
     }
 
-    [Theory]
-    [InlineData("/health/live")]
-    [InlineData("/health/ready")]
-    public async Task HealthEndpoints_ShouldReturnHealthy200_WithoutSensitiveInfo(string endpoint)
+    [Fact]
+    public async Task HealthLive_ShouldReturnHealthy200_WithoutSensitiveInfo()
     {
         using var client = _testingFactory.CreateClient();
 
-        var response = await client.GetAsync(endpoint);
+        var response = await client.GetAsync("/health/live");
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -252,7 +252,11 @@ public sealed class ApiFoundationIntegrationTests : IClassFixture<ApiFoundationI
         var configValues = new Dictionary<string, string?>
         {
             ["HttpsRedirection:Enabled"] = "false",
-            ["Cors:AllowCredentials"] = allowCredentials.ToString()
+            ["Cors:AllowCredentials"] = allowCredentials.ToString(),
+            ["ConnectionStrings:DefaultConnection"] = "Server=(localdb)\\MSSQLLocalDB;Database=EduScroll_ConfigCheck;Trusted_Connection=True;",
+            ["Jwt:Issuer"] = "EduScroll.API.Tests",
+            ["Jwt:Audience"] = "EduScroll.TestClients",
+            ["Jwt:SecretKey"] = SqlServerTestEnvironment.CreateEphemeralJwtSecret()
         };
 
         if (origin is not null)
@@ -273,13 +277,14 @@ public sealed class ApiFoundationIntegrationTests : IClassFixture<ApiFoundationI
     }
 
     [Fact]
-    public void AddInfrastructure_ShouldValidateArgs_AndRegisterTimeProviderIdempotently()
+    public async Task AddInfrastructure_ShouldValidateArgs_AndRegisterServicesIdempotently()
     {
         var config = new ConfigurationBuilder().Build();
         Assert.Throws<ArgumentNullException>(() => ((IServiceCollection)null!).AddInfrastructure(config));
         Assert.Throws<ArgumentNullException>(() => new ServiceCollection().AddInfrastructure(null!));
 
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddInfrastructure(config);
         services.AddInfrastructure(config);
 
@@ -287,6 +292,10 @@ public sealed class ApiFoundationIntegrationTests : IClassFixture<ApiFoundationI
 
         using var provider = services.BuildServiceProvider();
         Assert.Same(TimeProvider.System, provider.GetRequiredService<TimeProvider>());
+
+        var schemeProvider = provider.GetRequiredService<IAuthenticationSchemeProvider>();
+        var schemes = await schemeProvider.GetAllSchemesAsync();
+        Assert.Single(schemes, s => s.Name == "Bearer");
     }
 
     private static WebApplicationFactory<Program> CreateFaultFactory(string environmentName)
@@ -303,14 +312,27 @@ public sealed class ApiFoundationIntegrationTests : IClassFixture<ApiFoundationI
 
     public sealed class TestingApiFactory : WebApplicationFactory<Program>
     {
+        private readonly string _ephemeralSecret = SqlServerTestEnvironment.CreateEphemeralJwtSecret();
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:DefaultConnection"] =
+                        "Server=(localdb)\\MSSQLLocalDB;Database=EduScroll_TestingPlaceholder;Trusted_Connection=True;Connect Timeout=1",
+                    ["Jwt:SecretKey"] = _ephemeralSecret
+                });
+            });
         }
     }
 
     private sealed class EnvironmentApiFactory(string environmentName) : WebApplicationFactory<Program>
     {
+        private readonly string _ephemeralSecret = SqlServerTestEnvironment.CreateEphemeralJwtSecret();
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment(environmentName);
@@ -318,7 +340,10 @@ public sealed class ApiFoundationIntegrationTests : IClassFixture<ApiFoundationI
             {
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["HttpsRedirection:Enabled"] = "false"
+                    ["HttpsRedirection:Enabled"] = "false",
+                    ["ConnectionStrings:DefaultConnection"] =
+                        "Server=(localdb)\\MSSQLLocalDB;Database=EduScroll_EnvPlaceholder;Trusted_Connection=True;Connect Timeout=1",
+                    ["Jwt:SecretKey"] = _ephemeralSecret
                 });
             });
         }

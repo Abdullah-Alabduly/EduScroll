@@ -96,6 +96,7 @@ public sealed class GlobalExceptionHandler(
         var (status, title, type) = appEx.Kind switch
         {
             AppErrorKind.Validation => (StatusCodes.Status400BadRequest, "Validation error.", "https://tools.ietf.org/html/rfc9110#section-15.5.1"),
+            AppErrorKind.Unauthorized => (StatusCodes.Status401Unauthorized, "Authentication failed.", "https://tools.ietf.org/html/rfc9110#section-15.5.2"),
             AppErrorKind.NotFound => (StatusCodes.Status404NotFound, "Resource not found.", "https://tools.ietf.org/html/rfc9110#section-15.5.5"),
             AppErrorKind.Conflict => (StatusCodes.Status409Conflict, "Resource conflict.", "https://tools.ietf.org/html/rfc9110#section-15.5.10"),
             AppErrorKind.Forbidden => (StatusCodes.Status403Forbidden, "Access forbidden.", "https://tools.ietf.org/html/rfc9110#section-15.5.4"),

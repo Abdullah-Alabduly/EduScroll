@@ -13,6 +13,16 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
 
     public DbSet<Source> Sources => Set<Source>();
 
+    public DbSet<SourceAnalysis> SourceAnalyses => Set<SourceAnalysis>();
+
+    public DbSet<SourceTopic> SourceTopics => Set<SourceTopic>();
+
+    public DbSet<SourceSearchQuery> SourceSearchQueries => Set<SourceSearchQuery>();
+
+    public DbSet<WhitelistedChannel> WhitelistedChannels => Set<WhitelistedChannel>();
+
+    public DbSet<CatalogVideo> CatalogVideos => Set<CatalogVideo>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

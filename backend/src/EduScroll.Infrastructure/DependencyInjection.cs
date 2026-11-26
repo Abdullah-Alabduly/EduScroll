@@ -1,7 +1,11 @@
+using EduScroll.Application.AiAnalysis.Models;
+using EduScroll.Application.AiAnalysis.Ports;
 using EduScroll.Application.Authentication.Ports;
 using EduScroll.Application.Health;
 using EduScroll.Application.Sources.Models;
 using EduScroll.Application.Sources.Ports;
+using EduScroll.Application.VideoDiscovery.Ports;
+using EduScroll.Infrastructure.AiAnalysis;
 using EduScroll.Infrastructure.Authentication;
 using EduScroll.Infrastructure.Configuration;
 using EduScroll.Infrastructure.Identity;
@@ -56,6 +60,29 @@ public static class DependencyInjection
                 PreviewMaxLength: opts.PreviewMaxLength,
                 DefaultPageSize: opts.DefaultPageSize,
                 MaxPageSize: opts.MaxPageSize);
+        });
+
+        services.AddOptionsWithValidateOnStart<AiProviderOptions>()
+            .BindConfiguration(AiProviderOptions.SectionName);
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<AiProviderOptions>, AiProviderOptionsValidator>());
+
+        services.TryAddSingleton(serviceProvider =>
+        {
+            var opts = serviceProvider.GetRequiredService<IOptions<AiProviderOptions>>().Value;
+            return new AiAnalysisLimits(
+                MinInputCharacters: opts.MinInputCharacters,
+                MaxInputCharacters: opts.MaxInputCharacters,
+                MaxSchemaRepairAttempts: opts.MaxSchemaRepairAttempts,
+                MaxSummaryLength: opts.MaxSummaryLength,
+                MaxTopics: opts.MaxTopics,
+                MaxSubtopicsPerTopic: opts.MaxSubtopicsPerTopic,
+                MaxConcepts: opts.MaxConcepts,
+                MaxKeywords: opts.MaxKeywords,
+                SingleLanguageMinSearchQueries: opts.SingleLanguageMinSearchQueries,
+                SingleLanguageMaxSearchQueries: opts.SingleLanguageMaxSearchQueries,
+                DualLanguageMinSearchQueriesPerLanguage: opts.DualLanguageMinSearchQueriesPerLanguage,
+                DualLanguageMaxSearchQueriesPerLanguage: opts.DualLanguageMaxSearchQueriesPerLanguage);
         });
 
         if (!services.Any(sd => sd.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)))
@@ -124,6 +151,13 @@ public static class DependencyInjection
         services.TryAddSingleton<IWebHttpTransport, SecureSocketsHttpTransport>();
         services.TryAddSingleton<HtmlArticleExtractor>();
         services.TryAddScoped<IWebContentFetcher, SecureWebContentFetcher>();
+
+        services.TryAddScoped<ISourceAnalysisRepository, SourceAnalysisRepository>();
+        services.TryAddSingleton<IAiHttpTransport, OllamaHttpTransport>();
+        services.TryAddScoped<IAiAnalysisProvider, OllamaAiAnalysisProvider>();
+
+        services.TryAddScoped<IWhitelistedChannelRepository, WhitelistedChannelRepository>();
+        services.TryAddScoped<IVideoCatalogRepository, VideoCatalogRepository>();
 
         return services;
     }

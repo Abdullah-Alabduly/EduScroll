@@ -22,6 +22,90 @@ namespace EduScroll.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("EduScroll.Domain.Entities.CatalogVideo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ChannelExternalId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("ChannelName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(5000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DiscoverySource")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(8)");
+
+                    b.Property<long>("LikeCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("PublishedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(1024)
+                        .HasColumnType("nvarchar(1024)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<long>("ViewCount")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("WhitelistedChannelId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("YouTubeVideoId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WhitelistedChannelId")
+                        .HasDatabaseName("IX_CatalogVideos_WhitelistedChannelId");
+
+                    b.HasIndex("YouTubeVideoId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CatalogVideos_YouTubeVideoId");
+
+                    b.HasIndex("Language", "PublishedAtUtc")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_CatalogVideos_Language_PublishedAtUtc");
+
+                    b.ToTable("CatalogVideos", (string)null);
+                });
+
             modelBuilder.Entity("EduScroll.Domain.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -122,6 +206,187 @@ namespace EduScroll.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_Sources_OwnerUserId_CreatedAtUtc");
 
                     b.ToTable("Sources", (string)null);
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.SourceAnalysis", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AnalyzedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Concepts")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("ConceptsJson");
+
+                    b.Property<string>("Keywords")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("KeywordsJson");
+
+                    b.Property<string>("ModelName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PromptVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("ProviderName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("TargetFeedLanguage")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasDefaultValue("En");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SourceAnalyses_SourceId");
+
+                    b.HasIndex("OwnerUserId", "SourceId")
+                        .HasDatabaseName("IX_SourceAnalyses_OwnerUserId_SourceId");
+
+                    b.ToTable("SourceAnalyses", (string)null);
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.SourceSearchQuery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(8)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(8)")
+                        .HasDefaultValue("en");
+
+                    b.Property<string>("QueryText")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<Guid>("SourceAnalysisId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceAnalysisId", "DisplayOrder")
+                        .HasDatabaseName("IX_SourceSearchQueries_SourceAnalysisId_DisplayOrder");
+
+                    b.ToTable("SourceSearchQueries", (string)null);
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.SourceTopic", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<Guid?>("ParentTopicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SourceAnalysisId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceAnalysisId", "DisplayOrder")
+                        .HasDatabaseName("IX_SourceTopics_SourceAnalysisId_DisplayOrder");
+
+                    b.ToTable("SourceTopics", (string)null);
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.WhitelistedChannel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(8)");
+
+                    b.Property<DateTimeOffset?>("LastSyncedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TopicCategory")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<double>("TrustScore")
+                        .HasColumnType("float");
+
+                    b.Property<string>("YouTubeChannelId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("YouTubeChannelId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_WhitelistedChannels_YouTubeChannelId");
+
+                    b.HasIndex("IsActive", "Language")
+                        .HasDatabaseName("IX_WhitelistedChannels_IsActive_Language");
+
+                    b.ToTable("WhitelistedChannels", (string)null);
                 });
 
             modelBuilder.Entity("EduScroll.Infrastructure.Identity.ApplicationUser", b =>
@@ -341,6 +606,14 @@ namespace EduScroll.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("EduScroll.Domain.Entities.CatalogVideo", b =>
+                {
+                    b.HasOne("EduScroll.Domain.Entities.WhitelistedChannel", null)
+                        .WithMany()
+                        .HasForeignKey("WhitelistedChannelId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("EduScroll.Domain.Entities.RefreshToken", b =>
                 {
                     b.HasOne("EduScroll.Infrastructure.Identity.ApplicationUser", null)
@@ -355,6 +628,33 @@ namespace EduScroll.Infrastructure.Persistence.Migrations
                     b.HasOne("EduScroll.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.SourceAnalysis", b =>
+                {
+                    b.HasOne("EduScroll.Domain.Entities.Source", null)
+                        .WithOne()
+                        .HasForeignKey("EduScroll.Domain.Entities.SourceAnalysis", "SourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.SourceSearchQuery", b =>
+                {
+                    b.HasOne("EduScroll.Domain.Entities.SourceAnalysis", null)
+                        .WithMany("SearchQueries")
+                        .HasForeignKey("SourceAnalysisId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.SourceTopic", b =>
+                {
+                    b.HasOne("EduScroll.Domain.Entities.SourceAnalysis", null)
+                        .WithMany("Topics")
+                        .HasForeignKey("SourceAnalysisId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -408,6 +708,13 @@ namespace EduScroll.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("EduScroll.Domain.Entities.SourceAnalysis", b =>
+                {
+                    b.Navigation("SearchQueries");
+
+                    b.Navigation("Topics");
                 });
 #pragma warning restore 612, 618
         }

@@ -20,10 +20,10 @@ EduScroll/
 │   ├── Dockerfile                         # Multi-stage container build (requires Docker host)
 │   ├── .dockerignore
 │   ├── src/
-│   │   ├── EduScroll.Domain/              # Pure domain entities (RefreshToken, Source) & exceptions
-│   │   ├── EduScroll.Application/         # Auth & Source use cases, DTOs, validation & ports
-│   │   ├── EduScroll.Infrastructure/      # EF Core SQL Server, Identity, JWT, Sources, SSRF Web Fetcher & AngleSharp
-│   │   └── EduScroll.API/                 # Web API host, AuthController, SourcesController, HealthController, OpenAPI
+│   │   ├── EduScroll.Domain/              # Pure domain entities (RefreshToken, Source, SourceAnalysis) & exceptions
+│   │   ├── EduScroll.Application/         # Auth, Source & AI Analysis use cases, DTOs, validation & ports
+│   │   ├── EduScroll.Infrastructure/      # EF Core SQL Server, Identity, JWT, Sources, SSRF Web Fetcher, Ollama AI Adapter
+│   │   └── EduScroll.API/                 # Web API host, Auth, Sources, SourceAnalysis & Health controllers, OpenAPI
 │   └── tests/
 │       ├── EduScroll.Domain.Tests/
 │       ├── EduScroll.Application.Tests/
@@ -163,6 +163,33 @@ All Source endpoints require a valid Bearer JWT. `OwnerUserId` is derived strict
 | `GET /api/v1/sources` | Bearer JWT | `?page=1&pageSize=20` *(max `pageSize=50`)* | `200 OK` (`PagedSourcesResponse` of `SourceSummaryDto` with short `textPreview`, excluding full `extractedText`) | `400` Invalid pagination, `401` Unauthorized |
 | `GET /api/v1/sources/{id}` | Bearer JWT | — | `200 OK` (`SourceDetailDto` including full `extractedText`) | `401` Unauthorized, `404` Not found / not owned |
 | `DELETE /api/v1/sources/{id}` | Bearer JWT | — | `204 No Content` | `401` Unauthorized, `404` Not found / not owned |
+
+### AI Content Analysis Endpoints (`/api/v1/sources/{id}/analyze`, `/analysis`)
+
+All AI Analysis endpoints require a valid Bearer JWT and verify `OwnerUserId == JwtSub` via `ISourceRepository` before invoking the AI provider or returning persisted analysis.
+
+| Method & Route | Auth | Request Body | Success Response | Error Responses |
+|---|---|---|---|---|
+| `POST /api/v1/sources/{id}/analyze` | Bearer JWT | Optional `{ "forceRefresh": false, "languageHint": "en", "targetFeedLanguage": "en" \| "ar" \| "both" }` *(defaults to `"en"`)* | `200 OK` (`SourceAnalysisDto`: `targetFeedLanguage`, `subject`, `topic`, `summary`, `topics` + `subtopics`, `concepts`, `keywords`, language-tagged `searchQueries: [{ "query", "language" }]`, provider/model/prompt metadata) | `400` Validation / invalid `targetFeedLanguage` / input too short, `401` Unauthorized, `404` Source not found / not owned, `422` Input too long / invalid AI schema, `502` Provider unavailable / auth / rate-limited, `504` Provider timeout |
+| `GET /api/v1/sources/{id}/analysis` | Bearer JWT | — | `200 OK` (`SourceAnalysisDto`) | `401` Unauthorized, `404` Source or analysis not found / not owned |
+
+### AI Provider Configuration (`AiProvider` in `appsettings*.json` — ADR-003)
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `AiProvider:Provider` | `Ollama` | Active AI provider adapter behind `IAiAnalysisProvider` |
+| `AiProvider:BaseUrl` | `http://localhost:11434` | Ollama base URL (local dev default) |
+| `AiProvider:Model` | `llama3.2` | Configured Ollama model name |
+| `AiProvider:ApiKey` | *(empty — optional)* | Optional Bearer key for authenticated gateways; inject via User Secrets or `AiProvider__ApiKey` (never commit secrets) |
+| `AiProvider:TimeoutSeconds` | `60` | Per-attempt outbound AI timeout (1–300s) |
+| `AiProvider:MaxRetries` | `2` | Bounded retry count on transient HTTP/network/timeout errors (0–5) |
+| `AiProvider:RetryBaseDelayMilliseconds` | `500` | Base delay for bounded exponential backoff |
+| `AiProvider:MinInputCharacters` / `MaxInputCharacters` | `50` / `24000` | Input text bounds enforced before AI invocation |
+| `AiProvider:MaxSchemaRepairAttempts` | `1` | Bounded re-prompt repair attempts when AI JSON fails schema validation (0–2) |
+| `AiProvider:SingleLanguageMinSearchQueries` / `Max` | `3` / `8` | Required query count range for `en` or `ar` target feed language |
+| `AiProvider:DualLanguageMinSearchQueriesPerLanguage` / `Max` | `2` / `5` | Required per-language query count range for `both` (`4–10` total) |
+| `AiProvider:Temperature` | `0.1` | Near-deterministic decoding temperature |
+| `AiProvider:PromptVersion` | `v1.1` | Versioned prompt identifier persisted with `SourceAnalysis` |
 
 ### Source Ingestion Configuration & Limits (`SourceIngestion` in `appsettings*.json`)
 

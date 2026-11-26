@@ -1,3 +1,5 @@
+using EduScroll.Application.AiAnalysis.Ports;
+using EduScroll.Application.AiAnalysis.Services;
 using EduScroll.Application.Authentication.Ports;
 using EduScroll.Application.Authentication.Services;
 using EduScroll.Application.Sources.Ports;
@@ -18,6 +20,7 @@ public static class DependencyInjection
 
         services.TryAddScoped<IAuthService, AuthService>();
         services.TryAddScoped<ISourceService, SourceService>();
+        services.TryAddScoped<ISourceAnalysisService, SourceAnalysisService>();
 
         return services;
     }

@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using EduScroll.Application.VideoDiscovery.Ports;
 using EduScroll.Domain.Entities;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace EduScroll.Infrastructure.Persistence;
@@ -9,6 +10,8 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
     : IVideoCatalogRepository
 {
     private const int MaxSearchTerms = 12;
+    private const int MaxUniqueConstraintRetries = 2;
+    private const string YouTubeVideoIdIndexName = "IX_CatalogVideos_YouTubeVideoId";
 
     public Task<CatalogVideo?> GetByYouTubeVideoIdAsync(
         string youTubeVideoId,
@@ -59,69 +62,92 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
             return 0;
         }
 
-        // Deduplicate batch by YouTubeVideoId (case-insensitive to stay safe under SQL Server CI collation).
-        var deduped = new Dictionary<string, CatalogVideo>(StringComparer.OrdinalIgnoreCase);
-        foreach (var video in videos)
-        {
-            if (video is not null)
-            {
-                deduped[video.YouTubeVideoId] = video;
-            }
-        }
-
-        if (deduped.Count == 0)
+        var validVideos = videos.Where(v => v is not null).ToArray();
+        if (validVideos.Length == 0)
         {
             return 0;
         }
 
-        var videoIds = deduped.Keys.ToArray();
+        var videoIds = validVideos
+            .Select(v => v.YouTubeVideoId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         var strategy = dbContext.Database.CreateExecutionStrategy();
 
-        return await strategy.ExecuteAsync(async ct =>
+        for (var attempt = 0; ; attempt++)
         {
-            await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
-
-            var existingList = await dbContext.CatalogVideos
-                .Where(v => videoIds.Contains(v.YouTubeVideoId))
-                .ToListAsync(ct);
-
-            var existingByVideoId = existingList.ToDictionary(
-                v => v.YouTubeVideoId,
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (var incoming in deduped.Values)
+            try
             {
-                if (existingByVideoId.TryGetValue(incoming.YouTubeVideoId, out var existing))
+                return await strategy.ExecuteAsync(async ct =>
                 {
-                    existing.UpdateFromMetadata(
-                        incoming.WhitelistedChannelId,
-                        incoming.ChannelExternalId,
-                        incoming.ChannelName,
-                        incoming.Title,
-                        incoming.Description,
-                        incoming.ThumbnailUrl,
-                        incoming.Language,
-                        incoming.DurationSeconds,
-                        incoming.ViewCount,
-                        incoming.LikeCount,
-                        incoming.PublishedAtUtc,
-                        incoming.DiscoverySource,
-                        incoming.UpdatedAtUtc);
-                }
-                else
-                {
-                    if (dbContext.Entry(incoming).State == EntityState.Detached)
+                    await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+
+                    try
                     {
-                        await dbContext.CatalogVideos.AddAsync(incoming, ct);
+                        var existingList = await dbContext.CatalogVideos
+                            .Where(v => videoIds.Contains(v.YouTubeVideoId))
+                            .ToListAsync(ct);
+
+                        var trackedByVideoId = existingList.ToDictionary(
+                            v => v.YouTubeVideoId,
+                            StringComparer.OrdinalIgnoreCase);
+                        var touchedVideoIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                        foreach (var incoming in validVideos)
+                        {
+                            if (trackedByVideoId.TryGetValue(incoming.YouTubeVideoId, out var target))
+                            {
+                                if (!ReferenceEquals(target, incoming))
+                                {
+                                    target.UpdateFromMetadata(
+                                        incoming.WhitelistedChannelId,
+                                        incoming.ChannelExternalId,
+                                        incoming.ChannelName,
+                                        incoming.Title,
+                                        incoming.Description,
+                                        incoming.ThumbnailUrl,
+                                        incoming.Language,
+                                        incoming.DurationSeconds,
+                                        incoming.ViewCount,
+                                        incoming.LikeCount,
+                                        incoming.PublishedAtUtc,
+                                        incoming.DiscoverySource,
+                                        incoming.UpdatedAtUtc);
+                                }
+                            }
+                            else
+                            {
+                                if (dbContext.Entry(incoming).State == EntityState.Detached)
+                                {
+                                    await dbContext.CatalogVideos.AddAsync(incoming, ct);
+                                }
+
+                                trackedByVideoId[incoming.YouTubeVideoId] = incoming;
+                            }
+
+                            touchedVideoIds.Add(incoming.YouTubeVideoId);
+                        }
+
+                        await dbContext.SaveChangesAsync(ct);
+                        await transaction.CommitAsync(ct);
+
+                        return touchedVideoIds.Count;
                     }
-                }
+                    catch
+                    {
+                        dbContext.ChangeTracker.Clear();
+                        throw;
+                    }
+                }, cancellationToken);
             }
-
-            await dbContext.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
-
-            return deduped.Count;
-        }, cancellationToken);
+            catch (DbUpdateException ex) when (
+                attempt < MaxUniqueConstraintRetries &&
+                IsUniqueConstraintViolation(ex, YouTubeVideoIdIndexName))
+            {
+                dbContext.ChangeTracker.Clear();
+            }
+        }
     }
 
     public async Task<IReadOnlyList<CatalogVideo>> SearchByLanguageAsync(
@@ -146,9 +172,18 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
 
         var boundedMax = Math.Clamp(maxResults, 1, 200);
 
-        IQueryable<CatalogVideo> query = dbContext.CatalogVideos
-            .AsNoTracking()
-            .Where(v => normalizedLanguages.Contains(v.Language));
+        IQueryable<CatalogVideo> query = dbContext.CatalogVideos.AsNoTracking();
+        if (normalizedLanguages.Length == 1)
+        {
+            var singleLanguage = normalizedLanguages[0];
+            query = query.Where(v => v.Language == singleLanguage);
+        }
+        else
+        {
+            var firstLanguage = normalizedLanguages[0];
+            var secondLanguage = normalizedLanguages[1];
+            query = query.Where(v => v.Language == firstLanguage || v.Language == secondLanguage);
+        }
 
         var cleanedTerms = (searchTerms ?? [])
             .Where(t => !string.IsNullOrWhiteSpace(t))
@@ -169,6 +204,21 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
             .ToListAsync(cancellationToken);
     }
 
+    internal static bool IsUniqueConstraintViolation(DbUpdateException ex, string indexOrConstraintName)
+    {
+        for (Exception? current = ex.InnerException; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException sqlEx &&
+                (sqlEx.Number == 2601 || sqlEx.Number == 2627) &&
+                sqlEx.Message.Contains(indexOrConstraintName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static Expression<Func<CatalogVideo, bool>> BuildKeywordFilterExpression(string[] terms)
     {
         var parameter = Expression.Parameter(typeof(CatalogVideo), "v");
@@ -180,9 +230,12 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
 
         foreach (var term in terms)
         {
-            var termConstant = Expression.Constant(term, typeof(string));
-            var titleContains = Expression.Call(titleProp, containsMethod, termConstant);
-            var descContains = Expression.Call(descProp, containsMethod, termConstant);
+            var capturedTerm = term;
+            Expression<Func<string>> termLambda = () => capturedTerm;
+            var termExpression = termLambda.Body;
+
+            var titleContains = Expression.Call(titleProp, containsMethod, termExpression);
+            var descContains = Expression.Call(descProp, containsMethod, termExpression);
             var termMatch = Expression.OrElse(titleContains, descContains);
 
             combined = combined is null ? termMatch : Expression.OrElse(combined, termMatch);

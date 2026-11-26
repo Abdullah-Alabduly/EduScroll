@@ -68,7 +68,7 @@ public sealed class WhitelistedChannel
             "CHANNEL_CATEGORY_TOO_LONG",
             "Topic category");
 
-        ValidateTrustScore(trustScore);
+        var normalizedTrustScore = ValidateTrustScore(trustScore);
 
         return new WhitelistedChannel
         {
@@ -77,10 +77,10 @@ public sealed class WhitelistedChannel
             Name = normalizedName,
             Language = normalizedLanguage,
             TopicCategory = normalizedCategory,
-            TrustScore = trustScore,
+            TrustScore = normalizedTrustScore,
             IsActive = isActive,
             LastSyncedAtUtc = null,
-            CreatedAtUtc = createdAtUtc
+            CreatedAtUtc = createdAtUtc.ToUniversalTime()
         };
     }
 
@@ -91,30 +91,34 @@ public sealed class WhitelistedChannel
         double trustScore,
         bool isActive)
     {
-        Name = ValidateRequired(
+        var normalizedName = ValidateRequired(
             name,
             MaxNameLength,
             "CHANNEL_NAME_REQUIRED",
             "CHANNEL_NAME_TOO_LONG",
             "Channel name");
 
-        Language = ValidateLanguage(language);
+        var normalizedLanguage = ValidateLanguage(language);
 
-        TopicCategory = ValidateRequired(
+        var normalizedCategory = ValidateRequired(
             topicCategory,
             MaxTopicCategoryLength,
             "CHANNEL_CATEGORY_REQUIRED",
             "CHANNEL_CATEGORY_TOO_LONG",
             "Topic category");
 
-        ValidateTrustScore(trustScore);
-        TrustScore = trustScore;
+        var normalizedTrustScore = ValidateTrustScore(trustScore);
+
+        Name = normalizedName;
+        Language = normalizedLanguage;
+        TopicCategory = normalizedCategory;
+        TrustScore = normalizedTrustScore;
         IsActive = isActive;
     }
 
     public void MarkSynced(DateTimeOffset syncedAtUtc)
     {
-        LastSyncedAtUtc = syncedAtUtc;
+        LastSyncedAtUtc = syncedAtUtc.ToUniversalTime();
     }
 
     private static string ValidateRequired(
@@ -160,7 +164,7 @@ public sealed class WhitelistedChannel
         return normalized;
     }
 
-    private static void ValidateTrustScore(double trustScore)
+    private static double ValidateTrustScore(double trustScore)
     {
         if (double.IsNaN(trustScore) ||
             double.IsInfinity(trustScore) ||
@@ -171,5 +175,7 @@ public sealed class WhitelistedChannel
                 "CHANNEL_TRUST_SCORE_INVALID",
                 $"Channel trust score must be between {MinTrustScore:0.0} and {MaxTrustScore:0.0}.");
         }
+
+        return trustScore == 0.0 ? 0.0 : trustScore;
     }
 }

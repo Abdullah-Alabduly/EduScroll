@@ -115,6 +115,8 @@ public sealed class CatalogVideo
                 "Discovery source is invalid.");
         }
 
+        var utcCreated = utcNow.ToUniversalTime();
+
         return new CatalogVideo
         {
             Id = Guid.NewGuid(),
@@ -129,10 +131,10 @@ public sealed class CatalogVideo
             DurationSeconds = durationSeconds,
             ViewCount = viewCount,
             LikeCount = likeCount,
-            PublishedAtUtc = publishedAtUtc,
+            PublishedAtUtc = publishedAtUtc.ToUniversalTime(),
             DiscoverySource = discoverySource,
-            CreatedAtUtc = utcNow,
-            UpdatedAtUtc = utcNow
+            CreatedAtUtc = utcCreated,
+            UpdatedAtUtc = utcCreated
         };
     }
 
@@ -158,30 +160,30 @@ public sealed class CatalogVideo
                 "Whitelisted channel ID cannot be empty when specified.");
         }
 
-        ChannelExternalId = ValidateRequired(
+        var normalizedChannelExtId = ValidateRequired(
             channelExternalId,
             MaxChannelExternalIdLength,
             "VIDEO_CHANNEL_ID_REQUIRED",
             "VIDEO_CHANNEL_ID_TOO_LONG",
             "Channel external ID");
 
-        ChannelName = ValidateRequired(
+        var normalizedChannelName = ValidateRequired(
             channelName,
             MaxChannelNameLength,
             "VIDEO_CHANNEL_NAME_REQUIRED",
             "VIDEO_CHANNEL_NAME_TOO_LONG",
             "Channel name");
 
-        Title = ValidateRequired(
+        var normalizedTitle = ValidateRequired(
             title,
             MaxTitleLength,
             "VIDEO_TITLE_REQUIRED",
             "VIDEO_TITLE_TOO_LONG",
             "Video title");
 
-        Description = NormalizeDescription(description);
-        ThumbnailUrl = ValidateThumbnailUrl(thumbnailUrl);
-        Language = ValidateLanguage(language);
+        var normalizedDescription = NormalizeDescription(description);
+        var normalizedThumbnail = ValidateThumbnailUrl(thumbnailUrl);
+        var normalizedLanguage = ValidateLanguage(language);
         ValidateNumericMetrics(durationSeconds, viewCount, likeCount);
 
         if (!Enum.IsDefined(discoverySource))
@@ -189,6 +191,22 @@ public sealed class CatalogVideo
             throw new InvalidVideoCatalogDomainException(
                 "VIDEO_DISCOVERY_SOURCE_INVALID",
                 "Discovery source is invalid.");
+        }
+
+        ChannelExternalId = normalizedChannelExtId;
+        ChannelName = normalizedChannelName;
+        Title = normalizedTitle;
+        Language = normalizedLanguage;
+
+        // Preserve existing non-empty description and thumbnail if a partial refresh omits them.
+        if (!string.IsNullOrEmpty(normalizedDescription))
+        {
+            Description = normalizedDescription;
+        }
+
+        if (normalizedThumbnail is not null)
+        {
+            ThumbnailUrl = normalizedThumbnail;
         }
 
         // Preserve existing WhitelistedChannelId link if incoming update has null.
@@ -205,7 +223,7 @@ public sealed class CatalogVideo
 
         ViewCount = Math.Max(ViewCount, viewCount);
         LikeCount = Math.Max(LikeCount, likeCount);
-        PublishedAtUtc = publishedAtUtc;
+        PublishedAtUtc = publishedAtUtc.ToUniversalTime();
 
         // Upgrade provenance to WhitelistRss if matched to a whitelisted channel.
         if (DiscoverySource != DiscoverySource.WhitelistRss)
@@ -213,7 +231,7 @@ public sealed class CatalogVideo
             DiscoverySource = discoverySource;
         }
 
-        UpdatedAtUtc = updatedAtUtc;
+        UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 
     private static string ValidateRequired(
@@ -247,9 +265,15 @@ public sealed class CatalogVideo
         }
 
         var trimmed = description.Trim();
-        return trimmed.Length > MaxDescriptionLength
-            ? trimmed[..MaxDescriptionLength]
-            : trimmed;
+        if (trimmed.Length <= MaxDescriptionLength)
+        {
+            return trimmed;
+        }
+
+        var length = char.IsHighSurrogate(trimmed[MaxDescriptionLength - 1])
+            ? MaxDescriptionLength - 1
+            : MaxDescriptionLength;
+        return trimmed[..length];
     }
 
     private static string? ValidateThumbnailUrl(string? thumbnailUrl)

@@ -105,8 +105,56 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
         Assert.Contains("IX_SourceTopics_SourceAnalysisId_DisplayOrder", allIndexes);
         Assert.Contains("IX_SourceSearchQueries_SourceAnalysisId_DisplayOrder", allIndexes);
         Assert.Contains("IX_WhitelistedChannels_YouTubeChannelId", uniqueIndexes);
+        Assert.Contains("IX_WhitelistedChannels_IsActive_Language", allIndexes);
         Assert.Contains("IX_CatalogVideos_YouTubeVideoId", uniqueIndexes);
+        Assert.Contains("IX_CatalogVideos_WhitelistedChannelId", allIndexes);
         Assert.Contains("IX_CatalogVideos_Language_PublishedAtUtc", allIndexes);
+
+        await using var compositeIndexCmd = connection.CreateCommand();
+        compositeIndexCmd.CommandText = """
+            SELECT c.name, ic.is_descending_key
+            FROM sys.indexes i
+            INNER JOIN sys.tables t ON i.object_id = t.object_id
+            INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+            INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE t.name = 'CatalogVideos'
+              AND i.name = 'IX_CatalogVideos_Language_PublishedAtUtc'
+              AND ic.is_included_column = 0
+            ORDER BY ic.key_ordinal
+            """;
+
+        var compositeColumns = new List<(string Column, bool IsDescending)>();
+        await using (var reader = await compositeIndexCmd.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                compositeColumns.Add((reader.GetString(0), reader.GetBoolean(1)));
+            }
+        }
+
+        Assert.Equal(2, compositeColumns.Count);
+        Assert.Equal(("Language", false), compositeColumns[0]);
+        Assert.Equal(("PublishedAtUtc", true), compositeColumns[1]);
+
+        await using var fkCmd = connection.CreateCommand();
+        fkCmd.CommandText = """
+            SELECT fk.delete_referential_action_desc
+            FROM sys.foreign_keys fk
+            INNER JOIN sys.tables t ON fk.parent_object_id = t.object_id
+            WHERE t.name = 'CatalogVideos'
+              AND fk.name = 'FK_CatalogVideos_WhitelistedChannels_WhitelistedChannelId'
+            """;
+
+        string? fkDeleteAction = null;
+        await using (var reader = await fkCmd.ExecuteReaderAsync())
+        {
+            if (await reader.ReadAsync())
+            {
+                fkDeleteAction = reader.GetString(0);
+            }
+        }
+
+        Assert.Equal("SET_NULL", fkDeleteAction);
     }
 
     [SkippableFact]
@@ -117,7 +165,9 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
         var now = DateTimeOffset.UtcNow;
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var enChannelExtId = $"UC_EN_{suffix}";
+        var inactiveArChannelExtId = $"UC_AR_OFF_{suffix}";
         var enVideoId = $"vidEn_{suffix}";
+        var enOlderVideoId = $"vidEnOld_{suffix}";
         var arVideoId = $"vidAr_{suffix}";
 
         using var scope = _factory.Services.CreateScope();
@@ -125,9 +175,48 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
         var videoRepo = scope.ServiceProvider.GetRequiredService<IVideoCatalogRepository>();
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        // 1. Add whitelisted channel and verify unique constraint on YouTubeChannelId
+        // 1. Add/update whitelisted channels, verify lookup/sync/active filtering & unique constraint
         var enChannel = WhitelistedChannel.Create(enChannelExtId, "Test Math Channel", "en", "Mathematics", 0.95, now);
         await channelRepo.AddOrUpdateAsync(enChannel, CancellationToken.None);
+
+        var inactiveArChannel = WhitelistedChannel.Create(
+            inactiveArChannelExtId,
+            "Inactive Arabic Channel",
+            "ar",
+            "Physics",
+            0.5,
+            now,
+            isActive: false);
+        await channelRepo.AddOrUpdateAsync(inactiveArChannel, CancellationToken.None);
+
+        var enChannelUpdate = WhitelistedChannel.Create(
+            enChannelExtId,
+            "Test Math Channel Updated",
+            "en",
+            "Linear Algebra",
+            0.98,
+            now.AddMinutes(1));
+        await channelRepo.AddOrUpdateAsync(enChannelUpdate, CancellationToken.None);
+
+        var syncedAtWithOffset = new DateTimeOffset(2026, 11, 26, 22, 0, 0, TimeSpan.FromHours(2));
+        await channelRepo.MarkSyncedAsync(enChannel.Id, syncedAtWithOffset, CancellationToken.None);
+
+        var channelById = await channelRepo.GetByIdAsync(enChannel.Id, CancellationToken.None);
+        Assert.NotNull(channelById);
+        Assert.Equal("Test Math Channel Updated", channelById!.Name);
+        Assert.Equal("Linear Algebra", channelById.TopicCategory);
+        Assert.Equal(0.98, channelById.TrustScore);
+        Assert.NotNull(channelById.LastSyncedAtUtc);
+        Assert.Equal(syncedAtWithOffset.ToUniversalTime(), channelById.LastSyncedAtUtc);
+        Assert.Equal(TimeSpan.Zero, channelById.LastSyncedAtUtc!.Value.Offset);
+
+        var channelByExternalId = await channelRepo.GetByYouTubeChannelIdAsync(enChannelExtId, CancellationToken.None);
+        Assert.NotNull(channelByExternalId);
+        Assert.Equal(enChannel.Id, channelByExternalId!.Id);
+
+        var activeAll = await channelRepo.GetActiveAsync(null, CancellationToken.None);
+        Assert.Contains(activeAll, c => c.YouTubeChannelId == enChannelExtId);
+        Assert.DoesNotContain(activeAll, c => c.YouTubeChannelId == inactiveArChannelExtId);
 
         var activeEn = await channelRepo.GetActiveAsync("en", CancellationToken.None);
         Assert.Contains(activeEn, c => c.YouTubeChannelId == enChannelExtId);
@@ -137,12 +226,12 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
         await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
         dbContext.Entry(duplicateChannel).State = EntityState.Detached;
 
-        // 2. Upsert deduplicated catalog videos (including duplicate YouTubeVideoId in same batch)
+        // 2. Upsert deduplicated catalog videos (preserving richer batch fields + updating existing rows)
         var v1Initial = CatalogVideo.Create(
             enVideoId,
             enChannel.Id,
             enChannelExtId,
-            enChannel.Name,
+            channelById.Name,
             "Linear Algebra Eigenvalues Explained",
             "Clear explanation of eigenvectors and matrices.",
             "https://i.ytimg.com/vi/sample/hqdefault.jpg",
@@ -156,18 +245,18 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
 
         var v1DuplicateInBatch = CatalogVideo.Create(
             enVideoId,
-            enChannel.Id,
+            null,
             enChannelExtId,
-            enChannel.Name,
+            channelById.Name,
             "Linear Algebra Eigenvalues Explained (HD)",
-            "Updated description on eigenvectors.",
-            "https://i.ytimg.com/vi/sample/hqdefault.jpg",
+            null,
+            null,
             "en",
-            420,
+            null,
             2500,
             250,
             now.AddHours(-2),
-            DiscoverySource.WhitelistRss,
+            DiscoverySource.YouTubeApiFallback,
             now.AddMinutes(5));
 
         var v2Arabic = CatalogVideo.Create(
@@ -186,13 +275,66 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
             DiscoverySource.YouTubeApiFallback,
             now);
 
-        var affected = await videoRepo.UpsertRangeAsync([v1Initial, v1DuplicateInBatch, v2Arabic], CancellationToken.None);
-        Assert.Equal(2, affected);
+        var v3EnglishOlder = CatalogVideo.Create(
+            enOlderVideoId,
+            null,
+            $"UC_EN_OLD_{suffix}",
+            "Visual Math",
+            "Eigenvalues in C# 100% Visual",
+            "Older visual primer.",
+            null,
+            "en",
+            180,
+            800,
+            50,
+            now.AddDays(-5),
+            DiscoverySource.YouTubeApiFallback,
+            now);
+
+        var affected = await videoRepo.UpsertRangeAsync(
+            [v1Initial, v1DuplicateInBatch, v2Arabic, v3EnglishOlder],
+            CancellationToken.None);
+        Assert.Equal(3, affected);
 
         var storedEn = await videoRepo.GetByYouTubeVideoIdAsync(enVideoId, CancellationToken.None);
         Assert.NotNull(storedEn);
         Assert.Equal("Linear Algebra Eigenvalues Explained (HD)", storedEn!.Title);
+        Assert.Equal("Clear explanation of eigenvectors and matrices.", storedEn.Description);
+        Assert.Equal("https://i.ytimg.com/vi/sample/hqdefault.jpg", storedEn.ThumbnailUrl);
+        Assert.Equal(enChannel.Id, storedEn.WhitelistedChannelId);
+        Assert.Equal(420, storedEn.DurationSeconds);
         Assert.Equal(2500, storedEn.ViewCount);
+        Assert.Equal(250, storedEn.LikeCount);
+        Assert.Equal(DiscoverySource.WhitelistRss, storedEn.DiscoverySource);
+
+        var batchLookup = await videoRepo.GetByYouTubeVideoIdsAsync(
+            [enVideoId, arVideoId, "missing_video_id"],
+            CancellationToken.None);
+        Assert.Equal(2, batchLookup.Count);
+
+        var v1PersistedRefresh = CatalogVideo.Create(
+            enVideoId,
+            null,
+            enChannelExtId,
+            channelById.Name,
+            "Linear Algebra Eigenvalues Explained (HD)",
+            null,
+            null,
+            "en",
+            null,
+            3000,
+            300,
+            now.AddHours(-2),
+            DiscoverySource.YouTubeApiFallback,
+            now.AddMinutes(10));
+        var refreshedCount = await videoRepo.UpsertRangeAsync([v1PersistedRefresh], CancellationToken.None);
+        Assert.Equal(1, refreshedCount);
+
+        var refreshedEn = await videoRepo.GetByYouTubeVideoIdAsync(enVideoId, CancellationToken.None);
+        Assert.NotNull(refreshedEn);
+        Assert.Equal(3000, refreshedEn!.ViewCount);
+        Assert.Equal(enChannel.Id, refreshedEn.WhitelistedChannelId);
+        Assert.Equal(DiscoverySource.WhitelistRss, refreshedEn.DiscoverySource);
 
         // 3. Verify SQL Server unique constraint on CatalogVideos.YouTubeVideoId
         var duplicateVideo = CatalogVideo.Create(
@@ -214,14 +356,33 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
         await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
         dbContext.Entry(duplicateVideo).State = EntityState.Detached;
 
-        // 4. Verify Database-First language-filtered search
+        // 4. Verify Database-First language-filtered search, newest-first order & literal term matching
         var enMatches = await videoRepo.SearchByLanguageAsync(["en"], ["Eigenvalues"], 10, CancellationToken.None);
-        Assert.Contains(enMatches, v => v.YouTubeVideoId == enVideoId);
+        var enList = enMatches.ToList();
+        var newerIdx = enList.FindIndex(v => v.YouTubeVideoId == enVideoId);
+        var olderIdx = enList.FindIndex(v => v.YouTubeVideoId == enOlderVideoId);
+        Assert.True(newerIdx >= 0 && olderIdx > newerIdx);
         Assert.DoesNotContain(enMatches, v => v.YouTubeVideoId == arVideoId);
+
+        var literalPercentMatches = await videoRepo.SearchByLanguageAsync(["en"], ["100%"], 10, CancellationToken.None);
+        Assert.Contains(literalPercentMatches, v => v.YouTubeVideoId == enOlderVideoId);
+        Assert.DoesNotContain(literalPercentMatches, v => v.YouTubeVideoId == enVideoId);
+
+        var enBrowse = await videoRepo.SearchByLanguageAsync(["en"], null, 10, CancellationToken.None);
+        Assert.Contains(enBrowse, v => v.YouTubeVideoId == enVideoId);
 
         var arMatches = await videoRepo.SearchByLanguageAsync(["ar"], ["الجبر الخطي"], 10, CancellationToken.None);
         Assert.Contains(arMatches, v => v.YouTubeVideoId == arVideoId);
         Assert.DoesNotContain(arMatches, v => v.YouTubeVideoId == enVideoId);
+
+        // 5. Verify ON DELETE SET NULL preserves CatalogVideos when WhitelistedChannel is deleted
+        await dbContext.WhitelistedChannels
+            .Where(c => c.Id == enChannel.Id)
+            .ExecuteDeleteAsync();
+
+        var afterChannelDelete = await videoRepo.GetByYouTubeVideoIdAsync(enVideoId, CancellationToken.None);
+        Assert.NotNull(afterChannelDelete);
+        Assert.Null(afterChannelDelete!.WhitelistedChannelId);
     }
 
     [SkippableFact]

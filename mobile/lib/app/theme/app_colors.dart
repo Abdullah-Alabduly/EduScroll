@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 abstract final class AppColors {
-  // Brand palette (modern educational indigo + calm teal)
-  static const Color primary = Color(0xFF2563EB);
-  static const Color primaryDark = Color(0xFF1D4ED8);
-  static const Color primaryLight = Color(0xFF60A5FA);
+  // Brand palette (modern social-first violet + calm teal accents)
+  static const Color primary = Color(0xFF7C3AED);
+  static const Color primaryDark = Color(0xFF6D28D9);
+  static const Color primaryLight = Color(0xFFA78BFA);
   static const Color secondary = Color(0xFF0D9488);
   static const Color secondaryLight = Color(0xFF2DD4BF);
 
@@ -17,11 +17,11 @@ abstract final class AppColors {
   static const Color lightTextSecondary = Color(0xFF475569);
   static const Color lightTextMuted = Color(0xFF64748B);
 
-  // Dark surfaces & ink
-  static const Color darkBackground = Color(0xFF0B1120);
-  static const Color darkSurface = Color(0xFF111827);
-  static const Color darkSurfaceVariant = Color(0xFF1E293B);
-  static const Color darkBorder = Color(0xFF334155);
+  // Deep charcoal dark surfaces & crisp ink
+  static const Color darkBackground = Color(0xFF0E0F14);
+  static const Color darkSurface = Color(0xFF161822);
+  static const Color darkSurfaceVariant = Color(0xFF212434);
+  static const Color darkBorder = Color(0xFF2E3247);
   static const Color darkTextPrimary = Color(0xFFF8FAFC);
   static const Color darkTextSecondary = Color(0xFFCBD5E1);
   static const Color darkTextMuted = Color(0xFF94A3B8);

@@ -34,6 +34,7 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
 
         var appliedMigrations = await dbContext.Database.GetAppliedMigrationsAsync();
         Assert.Contains(appliedMigrations, m => m.EndsWith("InitialIdentityAndAuth", StringComparison.Ordinal));
+        Assert.Contains(appliedMigrations, m => m.EndsWith("AddSourcesTable", StringComparison.Ordinal));
 
         var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
         Assert.Empty(pendingMigrations);
@@ -60,23 +61,27 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
         Assert.Contains("AspNetUsers", tables);
         Assert.Contains("AspNetRoles", tables);
         Assert.Contains("RefreshTokens", tables);
+        Assert.Contains("Sources", tables);
 
         await using var indexCmd = connection.CreateCommand();
         indexCmd.CommandText = """
             SELECT i.name, i.is_unique
             FROM sys.indexes i
             INNER JOIN sys.tables t ON i.object_id = t.object_id
-            WHERE t.name IN ('AspNetUsers', 'RefreshTokens') AND i.name IS NOT NULL
+            WHERE t.name IN ('AspNetUsers', 'RefreshTokens', 'Sources') AND i.name IS NOT NULL
             """;
 
         var uniqueIndexes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var allIndexes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         await using (var reader = await indexCmd.ExecuteReaderAsync())
         {
             while (await reader.ReadAsync())
             {
+                var name = reader.GetString(0);
+                allIndexes.Add(name);
                 if (reader.GetBoolean(1))
                 {
-                    uniqueIndexes.Add(reader.GetString(0));
+                    uniqueIndexes.Add(name);
                 }
             }
         }
@@ -84,6 +89,7 @@ public sealed class DatabaseMigrationAndReadinessTests : IClassFixture<SqlServer
         Assert.Contains("EmailIndex", uniqueIndexes);
         Assert.Contains("UserNameIndex", uniqueIndexes);
         Assert.Contains("IX_RefreshTokens_TokenHash", uniqueIndexes);
+        Assert.Contains("IX_Sources_OwnerUserId_CreatedAtUtc", allIndexes);
     }
 
     [SkippableFact]

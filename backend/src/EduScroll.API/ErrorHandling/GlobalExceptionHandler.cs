@@ -100,7 +100,10 @@ public sealed class GlobalExceptionHandler(
             AppErrorKind.NotFound => (StatusCodes.Status404NotFound, "Resource not found.", "https://tools.ietf.org/html/rfc9110#section-15.5.5"),
             AppErrorKind.Conflict => (StatusCodes.Status409Conflict, "Resource conflict.", "https://tools.ietf.org/html/rfc9110#section-15.5.10"),
             AppErrorKind.Forbidden => (StatusCodes.Status403Forbidden, "Access forbidden.", "https://tools.ietf.org/html/rfc9110#section-15.5.4"),
+            AppErrorKind.PayloadTooLarge => (StatusCodes.Status413PayloadTooLarge, "Payload too large.", "https://tools.ietf.org/html/rfc9110#section-15.5.14"),
+            AppErrorKind.UnprocessableEntity => (StatusCodes.Status422UnprocessableEntity, "Unable to process content.", "https://tools.ietf.org/html/rfc9110#section-15.5.21"),
             AppErrorKind.ExternalDependency => (StatusCodes.Status502BadGateway, "Upstream dependency failure.", "https://tools.ietf.org/html/rfc9110#section-15.6.3"),
+            AppErrorKind.Timeout => (StatusCodes.Status504GatewayTimeout, "Upstream request timed out.", "https://tools.ietf.org/html/rfc9110#section-15.6.5"),
             _ => (StatusCodes.Status400BadRequest, "Application error.", "https://tools.ietf.org/html/rfc9110#section-15.5.1")
         };
 

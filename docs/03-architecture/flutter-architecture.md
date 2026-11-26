@@ -1,27 +1,28 @@
 # EduScroll — Flutter Client Architecture
 
-- **Document Version:** 1.0
-- **Status:** Implemented — Sprint 3 Flutter Foundation & Authentication Integration (`mobile/`)
-- **Work Package:** WP-05 / Sprint 3
+- **Document Version:** 1.1
+- **Status:** Implemented — Sprint 4 Flutter Foundation, Auth & Source Ingestion (`mobile/`)
+- **Work Package:** WP-05 / Sprints 3–4
 - **Last Updated:** 2026-11-25
 
-> **Sprint 3 Baseline:** Implemented under `mobile/` with **Flutter 3.41.4 / Dart 3.11.1**, **Riverpod (`flutter_riverpod`)**, **Dio (`dio`)**, **GoRouter (`go_router`)**, and **`flutter_secure_storage`**. Setup, Android emulator/device networking, and test instructions are maintained in [mobile/README.md](file:///C:/Users/Obad/Desktop/EduScroll/mobile/README.md).
+> **Sprint 4 Baseline:** Implemented under `mobile/` with **Flutter 3.41.4 / Dart 3.11.1**, **Riverpod (`flutter_riverpod`)**, **Dio (`dio`)**, **GoRouter (`go_router`)**, **`flutter_secure_storage`**, **`file_picker`**, and **`syncfusion_flutter_pdf`** (off-UI-thread pure-Dart extraction via `compute()`). Setup, Android/Web/Windows networking, and test instructions are maintained in [mobile/README.md](file:///C:/Users/Obad/Desktop/EduScroll/mobile/README.md).
 
 ---
 
-## 1. Feature-First Layered Architecture (Implemented in Sprint 3)
+## 1. Feature-First Layered Architecture (Implemented in Sprints 3–4)
 
 ```text
 mobile/lib/
 ├── main.dart                  # AppConfig.fromEnvironment() + ProviderScope entry
-├── app/                       # Root app, environment config, GoRouter guards, Material 3 light/dark themes
+├── app/                       # Root app, environment config, GoRouter + MainShellScreen bottom nav, dark-first Material 3 themes
 ├── core/                      # ApiEndpoints, Dio client + CorrelationId & Auth interceptors,
 │                              # SecureTokenStorage, ProblemDetails ErrorMapper, Validators, shared widgets
 └── features/
     ├── authentication/        # Domain entities/repo, Data models/AuthApiService/SessionRefresher,
     │                          # Riverpod AuthController & Splash/Login/Register screens
-    ├── home/                  # Authenticated Home foundation screen (Sprint 4+ feed placeholder)
-    └── profile/               # Authenticated GET /api/v1/auth/me Profile screen
+    ├── home/                  # Authenticated Home screen with Add Source / My Sources shortcuts
+    ├── profile/               # Authenticated GET /api/v1/auth/me Profile screen
+    └── sources/               # Sprint 4 Source Ingestion: local PDF extractor, URL submission, Add Source, My Sources & Source Details
 ```
 
 Within each feature: `presentation/` (widgets, screens, view state) -> `application/` (state notifiers/controllers) -> `data/` (API data sources, DTO mappers, local platform services).

@@ -153,6 +153,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           spacing: AppSpacing.sm,
                           runSpacing: AppSpacing.sm,
                           children: [
+                            FilledButton.icon(
+                              key: const Key('home_add_source_button'),
+                              onPressed: _isLoggingOut
+                                  ? null
+                                  : () => context.go(AppRoutes.addSource),
+                              icon: const Icon(Icons.add_circle_outline_rounded, size: 18),
+                              label: const Text('Add source'),
+                            ),
+                            FilledButton.tonalIcon(
+                              key: const Key('home_my_sources_button'),
+                              onPressed: _isLoggingOut
+                                  ? null
+                                  : () => context.go(AppRoutes.sources),
+                              icon: const Icon(Icons.library_books_outlined, size: 18),
+                              label: const Text('My sources'),
+                            ),
                             FilledButton.tonalIcon(
                               key: const Key('home_open_profile_button'),
                               onPressed: _isLoggingOut
@@ -179,16 +195,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 const SizedBox(height: AppSpacing.lg),
                 EmptyState(
                   icon: Icons.auto_stories_outlined,
-                  badgeText: 'Foundation Ready',
+                  badgeText: 'Sources Ready',
                   title: 'Educational discovery arrives next',
                   description:
-                      'Your account and secure session are connected to EduScroll. '
-                      'In upcoming sprints, you will be able to submit PDFs and web '
-                      'articles here to generate a focused short-video learning feed.',
-                  actionLabel: 'Inspect your profile',
+                      'Import PDF documents and public web articles using the Add Source tab. '
+                      'In upcoming sprints, your saved sources will power personalized short-video discovery.',
+                  actionLabel: 'Import a PDF or article',
                   onAction: _isLoggingOut
                       ? null
-                      : () => context.push(AppRoutes.profile),
+                      : () => context.go(AppRoutes.addSource),
                 ),
                 if (_isLoggingOut) ...[
                   const SizedBox(height: AppSpacing.lg),

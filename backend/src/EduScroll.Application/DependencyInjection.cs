@@ -1,5 +1,7 @@
 using EduScroll.Application.Authentication.Ports;
 using EduScroll.Application.Authentication.Services;
+using EduScroll.Application.Sources.Ports;
+using EduScroll.Application.Sources.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -15,6 +17,7 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddScoped<IAuthService, AuthService>();
+        services.TryAddScoped<ISourceService, SourceService>();
 
         return services;
     }

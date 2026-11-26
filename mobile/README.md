@@ -1,6 +1,6 @@
 # EduScroll Mobile (Flutter)
 
-Flutter mobile foundation for **EduScroll** (Sprint 3), integrated with the existing **ASP.NET Core 10 Web API** (`backend/`), **ASP.NET Core Identity**, and **JWT Bearer + Rotating Refresh Token** authentication.
+Flutter mobile application for **EduScroll** (Sprints 3–4), integrated with the existing **ASP.NET Core 10 Web API** (`backend/`), **ASP.NET Core Identity**, **JWT Bearer + Rotating Refresh Token** authentication, and **Source Ingestion (Local PDF Extraction & Secure Web Article Import)**.
 
 ---
 
@@ -22,12 +22,12 @@ Flutter mobile foundation for **EduScroll** (Sprint 3), integrated with the exis
 mobile/lib/
 ├── main.dart                         # Entry point (AppConfig + ProviderScope)
 ├── app/
-│   ├── app.dart                      # MaterialApp.router, light/dark themes, startup init
+│   ├── app.dart                      # MaterialApp.router, dark-first Material 3 themes, startup init
 │   ├── config/app_config.dart        # Environment & API_BASE_URL config (--dart-define)
-│   ├── router/app_router.dart        # GoRouter + centralized auth route guards
-│   └── theme/                        # Design tokens (colors, spacing, Material 3 themes)
+│   ├── router/                       # GoRouter + MainShellScreen bottom nav + centralized auth route guards
+│   └── theme/                        # Design tokens (deep charcoal surfaces, violet accent, spacing, themes)
 ├── core/
-│   ├── constants/api_endpoints.dart  # Verified /api/v1/auth/* and /health/* paths
+│   ├── constants/api_endpoints.dart  # Verified /api/v1/auth/*, /api/v1/sources/*, and /health/* paths
 │   ├── error/                        # AppFailure + RFC 9457 ProblemDetails ErrorMapper
 │   ├── network/                      # Centralized Dio client, AuthInterceptor, CorrelationIdInterceptor
 │   ├── storage/                      # SecureStorageService + SecureTokenStorage
@@ -35,15 +35,18 @@ mobile/lib/
 │   └── widgets/                      # Reusable UI components (buttons, fields, logo, error/empty views)
 └── features/
     ├── authentication/               # Domain entities/repo, Data models/API/SessionRefresher, Riverpod controller & Splash/Login/Register screens
-    ├── home/                         # Authenticated Home foundation screen (upcoming feed empty state)
-    └── profile/                      # Live GET /api/v1/auth/me Profile screen
+    ├── home/                         # Authenticated Home screen with quick source actions & upcoming feed notice
+    ├── profile/                      # Live GET /api/v1/auth/me Profile screen
+    └── sources/                      # Sprint 4 Source Ingestion (local PDF extractor, URL import, Add Source, My Sources, Source Details)
 ```
 
 ### Core Packages
-- `dio` — single centralized HTTP client with timeouts, correlation IDs, and auth interceptor.
-- `flutter_riverpod` — compile-safe dependency injection and reactive `AuthController` state.
-- `go_router` — declarative navigation and centralized auth route guards.
+- `dio` — single centralized HTTP client with timeouts, correlation IDs, cancellation tokens, and auth interceptor.
+- `flutter_riverpod` — compile-safe dependency injection and reactive state management (`AuthController`, `PdfIngestionController`, `UrlIngestionController`, `SourcesListController`).
+- `go_router` — declarative navigation, bottom navigation shell (`Home`, `Add Source`, `My Sources`), and centralized auth route guards.
 - `flutter_secure_storage` — OS-encrypted token storage (Android Keystore AES-GCM/RSA-OAEP, iOS Keychain `first_unlock_this_device`, Windows Credential Manager).
+- `file_picker` (`^13.4.1`) — cross-platform PDF document selection with streaming bounded reads.
+- `syncfusion_flutter_pdf` (`^35.1.43`) — pure-Dart PDF text and title metadata extraction executed off the UI thread via `compute()`. *(Note: Syncfusion provides a free Community License for eligible individual developers/small organizations and commercial licenses otherwise; extraction is isolated behind `PdfTextExtractorService`.)*
 
 ---
 
@@ -114,6 +117,9 @@ cd mobile
 # Run on Android emulator (defaults to http://10.0.2.2:5221)
 flutter run
 
+# Run on Chrome (Web — Development CORS allows dynamic localhost ports)
+flutter run -d chrome --dart-define=APP_ENV=development --dart-define=API_BASE_URL=http://localhost:5221
+
 # Run on Windows desktop (defaults to http://localhost:5221)
 flutter run -d windows
 
@@ -153,16 +159,25 @@ flutter analyze
 # Run all offline unit & widget tests
 flutter test
 
-# Run live integration test against a running EduScroll.API backend
+# Run live integration tests against a running EduScroll.API backend
 $env:EDUSCROLL_LIVE_API_URL = "http://127.0.0.1:5221"
-flutter test test/integration/real_backend_auth_test.dart
+flutter test test/integration/real_backend_auth_test.dart test/integration/real_backend_sources_test.dart
 ```
 
 ---
 
-## 9. Known Limitations (Sprint 3 Scope)
+## 9. Source Ingestion Workflows & Limits (Sprint 4)
 
-- **Educational Features Deferred:** PDF extraction, URL submission, AI analysis, YouTube discovery, and the vertical short-video feed are intentionally deferred to Sprints 4–9.
+- **Local PDF Extraction (`WF-02`):** Uses `file_picker` restricted to `.pdf`, validates size (`<= 15 MB`) and `%PDF-` file signature before parsing, runs `syncfusion_flutter_pdf` inside a background isolate via `compute()`, normalizes text while preserving paragraph boundaries, rejects empty/scanned/password-protected/corrupt PDFs honestly (no OCR yet), rejects extracted text `< 50` or `> 200,000` characters without silent truncation, and sends **UTF-8 text + metadata only** to `POST /api/v1/sources` (never the raw PDF file).
+- **Web Article URL Submission (`WF-03`):** Validates `http://`/`https://` URLs client-side with paste support, duplicate-tap prevention, and `CancelToken` cancellation, then delegates fetching and HTML extraction strictly to `POST /api/v1/sources/from-url` on the backend.
+- **My Sources & Source Details:** Paginated library (`GET /api/v1/sources`), pull-to-refresh, delete confirmation (`DELETE /api/v1/sources/{id}`), and plain `SelectableText` detail view (`GET /api/v1/sources/{id}`) that never renders extracted text as HTML.
+
+---
+
+## 10. Known Limitations (Sprint 4 Scope)
+
+- **Scanned / Image-Only PDFs:** OCR is not implemented; PDFs without an embedded text layer return a clear `PDF_NO_EXTRACTABLE_TEXT` message.
+- **Login-Walled / JS-Only Pages:** Backend web fetching parses public server-rendered HTML only and does not bypass logins, paywalls, or CAPTCHAs.
+- **Deferred Roadmap Features:** AI analysis, keyword/topic extraction, YouTube discovery, ranking, and the vertical short-video feed are intentionally deferred to Sprints 5–9.
 - **Profile Editing:** `ProfileScreen` is read-only because the backend exposes `GET /api/v1/auth/me` only.
 - **Localization:** UI copy is currently English with centralized error messages in `ErrorMapper` ready for `flutter_localizations` / Arabic ARB expansion.
-- **Android Licenses:** Accepting Android SDK licenses (`flutter doctor --android-licenses`) is required on developer workstations before Gradle Android APK builds can download missing SDK components if needed.

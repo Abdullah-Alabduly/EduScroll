@@ -13,11 +13,11 @@ abstract final class AppTheme {
     final colorScheme = ColorScheme(
       brightness: brightness,
       primary: isDark ? AppColors.primaryLight : AppColors.primary,
-      onPrimary: isDark ? const Color(0xFF0B1120) : Colors.white,
+      onPrimary: isDark ? const Color(0xFF1A0F36) : Colors.white,
       primaryContainer:
-          isDark ? const Color(0xFF1E3A8A) : const Color(0xFFDBEAFE),
+          isDark ? const Color(0xFF3B1F7A) : const Color(0xFFEDE9FE),
       onPrimaryContainer:
-          isDark ? const Color(0xFFDBEAFE) : const Color(0xFF1E3A8A),
+          isDark ? const Color(0xFFEDE9FE) : const Color(0xFF4C1D95),
       secondary: isDark ? AppColors.secondaryLight : AppColors.secondary,
       onSecondary: isDark ? const Color(0xFF042F2E) : Colors.white,
       secondaryContainer:

@@ -123,7 +123,8 @@ abstract final class ErrorMapper {
 
       return AppFailure(
         type: AppFailureType.validation,
-        message: firstFieldMsg ??
+        message: _messageForSourceOrValidationCode(code) ??
+            firstFieldMsg ??
             _safeMessage(problem.detail) ??
             'Please review your input and try again.',
         code: code ?? 'VALIDATION_FAILED',
@@ -148,6 +149,18 @@ abstract final class ErrorMapper {
         type: AppFailureType.forbidden,
         message: _messageForForbiddenCode(code),
         code: code ?? 'ACCESS_FORBIDDEN',
+        statusCode: statusCode,
+        correlationId: correlationId,
+      );
+    }
+
+    if (statusCode == 404) {
+      return AppFailure(
+        type: AppFailureType.notFound,
+        message: code == 'SOURCE_NOT_FOUND'
+            ? 'This source could not be found or has already been removed.'
+            : _safeMessage(problem.detail) ?? 'The requested item was not found.',
+        code: code ?? 'RESOURCE_NOT_FOUND',
         statusCode: statusCode,
         correlationId: correlationId,
       );
@@ -178,6 +191,18 @@ abstract final class ErrorMapper {
       );
     }
 
+    if (statusCode == 413) {
+      return AppFailure(
+        type: AppFailureType.payloadTooLarge,
+        message: _messageForSourceOrValidationCode(code) ??
+            _safeMessage(problem.detail) ??
+            'This content is too large to process.',
+        code: code ?? 'PAYLOAD_TOO_LARGE',
+        statusCode: statusCode,
+        correlationId: correlationId,
+      );
+    }
+
     if (statusCode == 429) {
       return AppFailure(
         type: AppFailureType.rateLimited,
@@ -188,10 +213,21 @@ abstract final class ErrorMapper {
       );
     }
 
-    if (statusCode == 502 || statusCode == 503 || statusCode == 504) {
+    if (statusCode == 504) {
+      return AppFailure(
+        type: AppFailureType.timeout,
+        message: _messageForSourceOrValidationCode(code) ??
+            'The request took too long to complete. Please try again.',
+        code: code ?? 'GATEWAY_TIMEOUT',
+        statusCode: statusCode,
+        correlationId: correlationId,
+      );
+    }
+
+    if (statusCode == 502 || statusCode == 503) {
       return AppFailure(
         type: AppFailureType.backendUnavailable,
-        message:
+        message: _messageForSourceOrValidationCode(code) ??
             'EduScroll is temporarily unavailable. Please try again shortly.',
         code: code ?? 'SERVICE_UNAVAILABLE',
         statusCode: statusCode,
@@ -216,6 +252,45 @@ abstract final class ErrorMapper {
       statusCode: statusCode,
       correlationId: correlationId,
     );
+  }
+
+  static String? _messageForSourceOrValidationCode(String? code) {
+    switch (code) {
+      case 'URL_REQUIRED':
+        return 'Enter an article link to continue.';
+      case 'URL_INVALID':
+        return 'Enter a valid article URL starting with https:// or http://.';
+      case 'URL_INVALID_SCHEME':
+        return 'Only http:// and https:// web links are supported.';
+      case 'URL_SSRF_BLOCKED':
+        return 'This address points to a private or restricted network and cannot be imported.';
+      case 'URL_REDIRECT_BLOCKED':
+        return 'This link redirected to a restricted destination and was blocked for safety.';
+      case 'URL_TOO_MANY_REDIRECTS':
+        return 'This link redirected too many times. Try opening the final article URL directly.';
+      case 'URL_TIMEOUT':
+        return 'The website took too long to respond. Please try again in a moment.';
+      case 'URL_UNSUPPORTED_CONTENT_TYPE':
+        return 'This link is not a readable HTML article page.';
+      case 'URL_NOT_FOUND':
+        return 'That web page could not be found (404). Check the link and try again.';
+      case 'URL_ACCESS_DENIED':
+        return 'That page restricts access or requires signing in and cannot be imported.';
+      case 'URL_RATE_LIMITED':
+        return 'The target website is temporarily limiting requests. Please try again later.';
+      case 'URL_RESPONSE_TOO_LARGE':
+        return 'This web page is too large to import.';
+      case 'URL_FETCH_FAILED':
+        return 'We could not retrieve content from that website right now.';
+      case 'ARTICLE_EXTRACTION_EMPTY':
+        return 'No readable article text could be extracted from that page.';
+      case 'SOURCE_TEXT_TOO_SHORT':
+        return 'The extracted text is too short to save as an educational source.';
+      case 'SOURCE_TEXT_TOO_LONG':
+        return 'The extracted text exceeds the maximum supported length.';
+      default:
+        return null;
+    }
   }
 
   static String _messageForUnauthorizedCode(String? code) {

@@ -1,9 +1,12 @@
 using EduScroll.Application.Authentication.Ports;
 using EduScroll.Application.Health;
+using EduScroll.Application.Sources.Models;
+using EduScroll.Application.Sources.Ports;
 using EduScroll.Infrastructure.Authentication;
 using EduScroll.Infrastructure.Configuration;
 using EduScroll.Infrastructure.Identity;
 using EduScroll.Infrastructure.Persistence;
+using EduScroll.Infrastructure.WebExtraction;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -38,6 +41,22 @@ public static class DependencyInjection
             .BindConfiguration(JwtOptions.SectionName);
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>());
+
+        services.AddOptionsWithValidateOnStart<SourceIngestionOptions>()
+            .BindConfiguration(SourceIngestionOptions.SectionName);
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<SourceIngestionOptions>, SourceIngestionOptionsValidator>());
+
+        services.TryAddSingleton(serviceProvider =>
+        {
+            var opts = serviceProvider.GetRequiredService<IOptions<SourceIngestionOptions>>().Value;
+            return new SourceIngestionLimits(
+                MinExtractedTextLength: opts.MinExtractedTextLength,
+                MaxExtractedTextLength: opts.MaxExtractedTextLength,
+                PreviewMaxLength: opts.PreviewMaxLength,
+                DefaultPageSize: opts.DefaultPageSize,
+                MaxPageSize: opts.MaxPageSize);
+        });
 
         if (!services.Any(sd => sd.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)))
         {
@@ -99,6 +118,12 @@ public static class DependencyInjection
         services.TryAddScoped<IRefreshTokenStore, RefreshTokenStore>();
         services.TryAddSingleton<ITokenService, JwtTokenService>();
         services.TryAddScoped<IDatabaseReadinessProbe, SqlServerReadinessProbe>();
+
+        services.TryAddScoped<ISourceRepository, SourceRepository>();
+        services.TryAddSingleton<IDnsResolver, SystemDnsResolver>();
+        services.TryAddSingleton<IWebHttpTransport, SecureSocketsHttpTransport>();
+        services.TryAddSingleton<HtmlArticleExtractor>();
+        services.TryAddScoped<IWebContentFetcher, SecureWebContentFetcher>();
 
         return services;
     }

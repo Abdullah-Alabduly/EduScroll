@@ -10,5 +10,8 @@ public enum AppErrorKind
     Conflict = 3,
     Forbidden = 4,
     ExternalDependency = 5,
-    Unauthorized = 6
+    Unauthorized = 6,
+    UnprocessableEntity = 7,
+    PayloadTooLarge = 8,
+    Timeout = 9
 }

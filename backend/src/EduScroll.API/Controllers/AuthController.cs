@@ -1,8 +1,6 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
+using EduScroll.API.Security;
 using EduScroll.Application.Authentication.Contracts;
 using EduScroll.Application.Authentication.Ports;
-using EduScroll.Application.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -70,7 +68,7 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
         [FromBody] LogoutRequest request,
         CancellationToken cancellationToken)
     {
-        var userId = GetCurrentUserId();
+        var userId = User.GetRequiredUserId();
         var response = await authService.LogoutAsync(userId, request, cancellationToken);
         return Ok(response);
     }
@@ -84,21 +82,8 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden, "application/problem+json")]
     public async Task<IActionResult> Me(CancellationToken cancellationToken)
     {
-        var userId = GetCurrentUserId();
+        var userId = User.GetRequiredUserId();
         var profile = await authService.GetCurrentUserAsync(userId, cancellationToken);
         return Ok(profile);
-    }
-
-    private Guid GetCurrentUserId()
-    {
-        var rawUserId = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-            ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        if (!Guid.TryParse(rawUserId, out var userId) || userId == Guid.Empty)
-        {
-            throw new UnauthorizedAppException("Authenticated user identifier is missing or invalid.", "UNAUTHORIZED");
-        }
-
-        return userId;
     }
 }

@@ -20,19 +20,19 @@ EduScroll/
 │   ├── Dockerfile                         # Multi-stage container build (requires Docker host)
 │   ├── .dockerignore
 │   ├── src/
-│   │   ├── EduScroll.Domain/              # Pure domain entities & exceptions (no framework deps)
-│   │   ├── EduScroll.Application/         # Auth use cases, DTOs, validation & ports
-│   │   ├── EduScroll.Infrastructure/      # EF Core SQL Server, Identity, JWT, refresh tokens
-│   │   └── EduScroll.API/                 # Web API host, AuthController, HealthController, OpenAPI
+│   │   ├── EduScroll.Domain/              # Pure domain entities (RefreshToken, Source) & exceptions
+│   │   ├── EduScroll.Application/         # Auth & Source use cases, DTOs, validation & ports
+│   │   ├── EduScroll.Infrastructure/      # EF Core SQL Server, Identity, JWT, Sources, SSRF Web Fetcher & AngleSharp
+│   │   └── EduScroll.API/                 # Web API host, AuthController, SourcesController, HealthController, OpenAPI
 │   └── tests/
 │       ├── EduScroll.Domain.Tests/
 │       ├── EduScroll.Application.Tests/
 │       ├── EduScroll.Architecture.Tests/
 │       └── EduScroll.API.IntegrationTests/
-└── mobile/                                # Flutter client foundation & auth integration (Sprint 3)
+└── mobile/                                # Flutter client foundation, auth & source ingestion (Sprints 3–4)
     ├── pubspec.yaml
-    ├── README.md                          # Complete Flutter setup, Android & testing guide
-    ├── lib/                               # App config, theme, router, core network/storage, auth/home/profile
+    ├── README.md                          # Complete Flutter setup, Android/Web/Windows & testing guide
+    ├── lib/                               # App config, dark-first theme, GoRouter shell, core network/storage, auth/home/profile/sources
     └── test/                              # Unit, widget & live backend integration tests
 ```
 
@@ -152,12 +152,39 @@ All `4xx`/`5xx` error responses follow **RFC 9457 `ProblemDetails`** (`applicati
 | `POST /api/v1/auth/logout` | Bearer JWT | `{ "refreshToken" }` | `200 OK` (`{ "message": "Signed out successfully." }`) | `400` Validation, `401` Unauthorized or invalid token |
 | `GET /api/v1/auth/me` | Bearer JWT | — | `200 OK` (`UserProfileDto`) | `401` Unauthorized, `403` Inactive account |
 
+### Source Ingestion Endpoints (`/api/v1/sources`)
+
+All Source endpoints require a valid Bearer JWT. `OwnerUserId` is derived strictly from the authenticated JWT `sub` claim and enforced in every database query (cross-user access returns `404 SOURCE_NOT_FOUND`).
+
+| Method & Route | Auth | Request Body / Query | Success Response | Error Responses |
+|---|---|---|---|---|
+| `POST /api/v1/sources` | Bearer JWT | `{ "title", "sourceType": "Pdf", "extractedText", "fileName"? }` *(UTF-8 text only; max 1 MB JSON body)* | `201 Created` (`SourceDetailDto`) | `400` Validation, `401` Unauthorized, `413` Payload too large |
+| `POST /api/v1/sources/from-url` | Bearer JWT | `{ "url" }` *(public `http://`/`https://` article URL)* | `201 Created` (`SourceDetailDto`) | `400` Invalid/SSRF/Redirect blocked, `401` Unauthorized, `413` Response/text too large, `422` Non-HTML/404/403/Empty extraction/Too many redirects, `502` Upstream error, `504` Timeout |
+| `GET /api/v1/sources` | Bearer JWT | `?page=1&pageSize=20` *(max `pageSize=50`)* | `200 OK` (`PagedSourcesResponse` of `SourceSummaryDto` with short `textPreview`, excluding full `extractedText`) | `400` Invalid pagination, `401` Unauthorized |
+| `GET /api/v1/sources/{id}` | Bearer JWT | — | `200 OK` (`SourceDetailDto` including full `extractedText`) | `401` Unauthorized, `404` Not found / not owned |
+| `DELETE /api/v1/sources/{id}` | Bearer JWT | — | `204 No Content` | `401` Unauthorized, `404` Not found / not owned |
+
+### Source Ingestion Configuration & Limits (`SourceIngestion` in `appsettings*.json`)
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `SourceIngestion:MinExtractedTextLength` | `50` | Minimum normalized character count accepted |
+| `SourceIngestion:MaxExtractedTextLength` | `200000` | Maximum normalized character count persisted in SQL Server |
+| `SourceIngestion:PreviewMaxLength` | `240` | Maximum preview excerpt length projected in list responses |
+| `SourceIngestion:DefaultPageSize` / `MaxPageSize` | `20` / `50` | Server-enforced pagination bounds |
+| `SourceIngestion:WebFetch:ConnectTimeoutSeconds` | `10` | Socket connect timeout for outbound article fetch |
+| `SourceIngestion:WebFetch:RequestTimeoutSeconds` | `20` | End-to-end outbound fetch timeout |
+| `SourceIngestion:WebFetch:MaxResponseBytes` | `2097152` (2 MB) | Hard streamed byte cap (blocks oversized & chunked/gzip bombs) |
+| `SourceIngestion:WebFetch:MaxRedirects` | `3` | Maximum manually validated redirect hops |
+| `SourceIngestion:WebFetch:AllowedContentTypes` | `text/html`, `application/xhtml+xml` | Supported article MIME types |
+
 ### Security Controls Implemented
 
 - **Password Hashing & Policy:** ASP.NET Core Identity adaptive salted hashing (`PasswordHasher`), minimum 8 characters with uppercase, lowercase, digit, special character, and at least 6 unique characters.
 - **Account Lockout:** Locks account for 15 minutes after 5 consecutive failed password attempts.
 - **Refresh Token Security:** 512-bit CSPRNG opaque tokens; only the 64-char SHA-256 hex digest is persisted in SQL Server `RefreshTokens` (with unique index `IX_RefreshTokens_TokenHash`), rotated on every refresh, revoked on logout/rotation, and protected against concurrent refresh races via SQL Server `rowversion` optimistic concurrency inside a transaction.
-- **No Sensitive Logging:** Passwords, raw refresh tokens, JWT signing keys, and connection strings are never logged or returned in API errors.
+- **SSRF-Hardened Web Fetcher (`IWebContentFetcher` / `SecureWebContentFetcher`):** Enforces `http`/`https` scheme allowlist, blocks credentials in URLs, blocks localhost/internal/unqualified hostnames and all non-public IPv4/IPv6/IPv4-mapped/NAT64/6to4/metadata CIDR ranges on both pre-flight DNS resolution AND inside `SocketsHttpHandler.ConnectCallback` (mitigating DNS rebinding), manually revalidates every redirect hop, disables proxies/cookies/auto-redirects, validates HTML `Content-Type`, and caps streamed response bytes.
+- **No Sensitive Logging:** Passwords, raw refresh tokens, JWT signing keys, connection strings, internal IPs, and raw `ExtractedText` bodies are never logged or leaked in API errors.
 
 ---
 

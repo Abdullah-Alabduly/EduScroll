@@ -4,12 +4,14 @@ using EduScroll.Application.Authentication.Ports;
 using EduScroll.Application.Health;
 using EduScroll.Application.Sources.Models;
 using EduScroll.Application.Sources.Ports;
+using EduScroll.Application.VideoDiscovery.Models;
 using EduScroll.Application.VideoDiscovery.Ports;
 using EduScroll.Infrastructure.AiAnalysis;
 using EduScroll.Infrastructure.Authentication;
 using EduScroll.Infrastructure.Configuration;
 using EduScroll.Infrastructure.Identity;
 using EduScroll.Infrastructure.Persistence;
+using EduScroll.Infrastructure.VideoDiscovery;
 using EduScroll.Infrastructure.WebExtraction;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -83,6 +85,19 @@ public static class DependencyInjection
                 SingleLanguageMaxSearchQueries: opts.SingleLanguageMaxSearchQueries,
                 DualLanguageMinSearchQueriesPerLanguage: opts.DualLanguageMinSearchQueriesPerLanguage,
                 DualLanguageMaxSearchQueriesPerLanguage: opts.DualLanguageMaxSearchQueriesPerLanguage);
+        });
+
+        services.AddOptionsWithValidateOnStart<YouTubeOptions>()
+            .BindConfiguration(YouTubeOptions.SectionName);
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<YouTubeOptions>, YouTubeOptionsValidator>());
+
+        services.TryAddSingleton(serviceProvider =>
+        {
+            var opts = serviceProvider.GetRequiredService<IOptions<YouTubeOptions>>().Value;
+            return new VideoDiscoveryLimits(
+                MetadataBatchSize: opts.MetadataBatchSize,
+                MaxVideosPerChannelPerSync: opts.MaxVideosPerChannelPerSync);
         });
 
         if (!services.Any(sd => sd.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)))
@@ -159,6 +174,32 @@ public static class DependencyInjection
         services.TryAddScoped<IWhitelistedChannelRepository, WhitelistedChannelRepository>();
         services.TryAddScoped<IVideoCatalogRepository, VideoCatalogRepository>();
 
+        if (!services.Any(sd => sd.ServiceType == typeof(IYouTubeRssFeedClient)))
+        {
+            services.AddHttpClient<IYouTubeRssFeedClient, YouTubeRssFeedClient>(client =>
+                {
+                    // Per-attempt timeout is enforced via linked CancellationTokenSource inside the client.
+                    client.Timeout = Timeout.InfiniteTimeSpan;
+                })
+                .ConfigurePrimaryHttpMessageHandler(CreateYouTubeSocketsHttpHandler);
+        }
+
+        if (!services.Any(sd => sd.ServiceType == typeof(IYouTubeVideoMetadataClient)))
+        {
+            services.AddHttpClient<IYouTubeVideoMetadataClient, YouTubeVideoMetadataClient>(client =>
+                {
+                    client.Timeout = Timeout.InfiniteTimeSpan;
+                })
+                .ConfigurePrimaryHttpMessageHandler(CreateYouTubeSocketsHttpHandler);
+        }
+
         return services;
     }
+
+    private static SocketsHttpHandler CreateYouTubeSocketsHttpHandler() => new()
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+    };
 }

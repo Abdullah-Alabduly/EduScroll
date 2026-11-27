@@ -53,6 +53,23 @@ public sealed class YouTubeOptionsValidator : IValidateOptions<YouTubeOptions>
                 $"YouTube:MaxVideosPerChannelPerSync must be between 1 and {YouTubeOptions.MaxAllowedVideosPerChannelPerSync}.");
         }
 
+        if (options.MinLocalCandidatesThreshold < 1)
+        {
+            failures.Add("YouTube:MinLocalCandidatesThreshold must be at least 1.");
+        }
+
+        if (options.MaxFallbackQueriesPerDiscovery is < 1 or > YouTubeOptions.MaxAllowedFallbackQueriesPerDiscovery)
+        {
+            failures.Add(
+                $"YouTube:MaxFallbackQueriesPerDiscovery must be between 1 and {YouTubeOptions.MaxAllowedFallbackQueriesPerDiscovery}.");
+        }
+
+        if (options.MaxFallbackResultsPerQuery is < 1 or > YouTubeOptions.MaxAllowedFallbackResultsPerQuery)
+        {
+            failures.Add(
+                $"YouTube:MaxFallbackResultsPerQuery must be between 1 and {YouTubeOptions.MaxAllowedFallbackResultsPerQuery}.");
+        }
+
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)
             : ValidateOptionsResult.Success;

@@ -9,7 +9,7 @@ namespace EduScroll.Infrastructure.Persistence;
 public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
     : IVideoCatalogRepository
 {
-    private const int MaxSearchTerms = 12;
+    private const int MaxSearchTerms = 20;
     private const int MaxUniqueConstraintRetries = 2;
     private const string YouTubeVideoIdIndexName = "IX_CatalogVideos_YouTubeVideoId";
 
@@ -172,25 +172,53 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
 
         var boundedMax = Math.Clamp(maxResults, 1, 200);
 
-        IQueryable<CatalogVideo> query = dbContext.CatalogVideos.AsNoTracking();
-        if (normalizedLanguages.Length == 1)
-        {
-            var singleLanguage = normalizedLanguages[0];
-            query = query.Where(v => v.Language == singleLanguage);
-        }
-        else
-        {
-            var firstLanguage = normalizedLanguages[0];
-            var secondLanguage = normalizedLanguages[1];
-            query = query.Where(v => v.Language == firstLanguage || v.Language == secondLanguage);
-        }
-
         var cleanedTerms = (searchTerms ?? [])
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .Select(t => t.Trim())
+            .Select(t => t.Length > SourceSearchQuery.MaxQueryTextLength
+                ? t[..SourceSearchQuery.MaxQueryTextLength]
+                : t)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(MaxSearchTerms)
             .ToArray();
+
+        if (normalizedLanguages.Length == 1)
+        {
+            return await ExecuteSingleLanguageSearchAsync(
+                normalizedLanguages[0],
+                cleanedTerms,
+                boundedMax,
+                cancellationToken);
+        }
+
+        // Execute one indexed equality seek per language sequentially to preserve scoped DbContext safety.
+        var combined = new List<CatalogVideo>(boundedMax * normalizedLanguages.Length);
+        foreach (var language in normalizedLanguages)
+        {
+            var perLang = await ExecuteSingleLanguageSearchAsync(
+                language,
+                cleanedTerms,
+                boundedMax,
+                cancellationToken);
+            combined.AddRange(perLang);
+        }
+
+        return combined
+            .OrderByDescending(v => v.PublishedAtUtc)
+            .ThenByDescending(v => v.ViewCount)
+            .Take(boundedMax)
+            .ToArray();
+    }
+
+    private async Task<IReadOnlyList<CatalogVideo>> ExecuteSingleLanguageSearchAsync(
+        string language,
+        string[] cleanedTerms,
+        int maxResults,
+        CancellationToken cancellationToken)
+    {
+        IQueryable<CatalogVideo> query = dbContext.CatalogVideos
+            .AsNoTracking()
+            .Where(v => v.Language == language);
 
         if (cleanedTerms.Length > 0)
         {
@@ -200,7 +228,7 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
         return await query
             .OrderByDescending(v => v.PublishedAtUtc)
             .ThenByDescending(v => v.ViewCount)
-            .Take(boundedMax)
+            .Take(maxResults)
             .ToListAsync(cancellationToken);
     }
 

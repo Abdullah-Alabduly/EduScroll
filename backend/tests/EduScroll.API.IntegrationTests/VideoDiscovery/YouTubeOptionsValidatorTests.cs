@@ -154,6 +154,54 @@ public sealed class YouTubeOptionsValidatorTests
         Assert.Contains(result.Failures!, f => f.Contains("MaxVideosPerChannelPerSync", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Validate_WithOutOfRangeMinLocalCandidatesThreshold_ShouldFail(int threshold)
+    {
+        var options = new YouTubeOptions
+        {
+            MinLocalCandidatesThreshold = threshold
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains("MinLocalCandidatesThreshold", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    public void Validate_WithOutOfRangeMaxFallbackQueriesPerDiscovery_ShouldFail(int maxQueries)
+    {
+        var options = new YouTubeOptions
+        {
+            MaxFallbackQueriesPerDiscovery = maxQueries
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains("MaxFallbackQueriesPerDiscovery", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(26)]
+    public void Validate_WithOutOfRangeMaxFallbackResultsPerQuery_ShouldFail(int maxResults)
+    {
+        var options = new YouTubeOptions
+        {
+            MaxFallbackResultsPerQuery = maxResults
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains("MaxFallbackResultsPerQuery", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Validate_WithBoundaryValidValues_ShouldSucceed()
     {
@@ -165,7 +213,11 @@ public sealed class YouTubeOptionsValidatorTests
             MaxRetries = 0,
             RetryBaseDelayMilliseconds = 0,
             MetadataBatchSize = 1,
-            MaxVideosPerChannelPerSync = 1
+            MaxVideosPerChannelPerSync = 1,
+            EnableSearchFallback = false,
+            MinLocalCandidatesThreshold = 1,
+            MaxFallbackQueriesPerDiscovery = 1,
+            MaxFallbackResultsPerQuery = 1
         };
 
         var maxOptions = new YouTubeOptions
@@ -176,7 +228,11 @@ public sealed class YouTubeOptionsValidatorTests
             MaxRetries = 5,
             RetryBaseDelayMilliseconds = 10_000,
             MetadataBatchSize = 50,
-            MaxVideosPerChannelPerSync = 50
+            MaxVideosPerChannelPerSync = 50,
+            EnableSearchFallback = true,
+            MinLocalCandidatesThreshold = 15,
+            MaxFallbackQueriesPerDiscovery = 5,
+            MaxFallbackResultsPerQuery = 25
         };
 
         Assert.True(_validator.Validate(null, minOptions).Succeeded);

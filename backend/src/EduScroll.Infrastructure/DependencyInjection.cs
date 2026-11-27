@@ -97,7 +97,11 @@ public static class DependencyInjection
             var opts = serviceProvider.GetRequiredService<IOptions<YouTubeOptions>>().Value;
             return new VideoDiscoveryLimits(
                 MetadataBatchSize: opts.MetadataBatchSize,
-                MaxVideosPerChannelPerSync: opts.MaxVideosPerChannelPerSync);
+                MaxVideosPerChannelPerSync: opts.MaxVideosPerChannelPerSync,
+                EnableSearchFallback: opts.EnableSearchFallback,
+                MinLocalCandidatesThreshold: opts.MinLocalCandidatesThreshold,
+                MaxFallbackQueriesPerDiscovery: opts.MaxFallbackQueriesPerDiscovery,
+                MaxFallbackResultsPerQuery: opts.MaxFallbackResultsPerQuery);
         });
 
         if (!services.Any(sd => sd.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)))
@@ -187,6 +191,15 @@ public static class DependencyInjection
         if (!services.Any(sd => sd.ServiceType == typeof(IYouTubeVideoMetadataClient)))
         {
             services.AddHttpClient<IYouTubeVideoMetadataClient, YouTubeVideoMetadataClient>(client =>
+                {
+                    client.Timeout = Timeout.InfiniteTimeSpan;
+                })
+                .ConfigurePrimaryHttpMessageHandler(CreateYouTubeSocketsHttpHandler);
+        }
+
+        if (!services.Any(sd => sd.ServiceType == typeof(IYouTubeSearchFallbackClient)))
+        {
+            services.AddHttpClient<IYouTubeSearchFallbackClient, YouTubeSearchFallbackClient>(client =>
                 {
                     client.Timeout = Timeout.InfiniteTimeSpan;
                 })

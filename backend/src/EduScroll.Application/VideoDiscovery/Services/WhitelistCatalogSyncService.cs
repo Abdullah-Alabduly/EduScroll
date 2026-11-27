@@ -156,13 +156,13 @@ public sealed class WhitelistCatalogSyncService(
                 enrichedVideosCount++;
             }
 
-            var title = ResolveRequiredText(meta?.Title, rss.Title, null, CatalogVideo.MaxTitleLength);
-            var channelName = ResolveRequiredText(
+            var title = CatalogVideoMappingHelper.ResolveRequiredText(meta?.Title, rss.Title, null, CatalogVideo.MaxTitleLength);
+            var channelName = CatalogVideoMappingHelper.ResolveRequiredText(
                 meta?.ChannelName,
                 rss.ChannelName,
                 channel.Name,
                 CatalogVideo.MaxChannelNameLength);
-            var channelExternalId = ResolveRequiredText(
+            var channelExternalId = CatalogVideoMappingHelper.ResolveRequiredText(
                 meta?.ChannelExternalId,
                 rss.ChannelExternalId,
                 channel.YouTubeChannelId,
@@ -170,8 +170,8 @@ public sealed class WhitelistCatalogSyncService(
             var description = !string.IsNullOrWhiteSpace(meta?.Description)
                 ? meta.Description
                 : rss.Description;
-            var thumbnailUrl = ResolveThumbnailUrl(meta?.ThumbnailUrl, rss.ThumbnailUrl);
-            var resolvedLanguage = ResolveVideoLanguage(meta?.DefaultLanguage, channel.Language);
+            var thumbnailUrl = CatalogVideoMappingHelper.ResolveThumbnailUrl(meta?.ThumbnailUrl, rss.ThumbnailUrl);
+            var resolvedLanguage = CatalogVideoMappingHelper.ResolveVideoLanguage(meta?.DefaultLanguage, channel.Language);
             var durationSeconds = meta?.DurationSeconds is >= 0 ? meta.DurationSeconds : null;
             var viewCount = Math.Max(0L, Math.Max(meta?.ViewCount ?? 0L, rss.ViewCount));
             var likeCount = Math.Max(0L, meta?.LikeCount ?? 0L);
@@ -261,93 +261,5 @@ public sealed class WhitelistCatalogSyncService(
                 ["language"] = ["Allowed values are 'en' and 'ar'."]
             },
             "VIDEO_LANGUAGE_INVALID");
-    }
-
-    private static string ResolveRequiredText(
-        string? preferred,
-        string? fallback,
-        string? secondaryFallback,
-        int maxLength)
-    {
-        var candidate = !string.IsNullOrWhiteSpace(preferred)
-            ? preferred
-            : !string.IsNullOrWhiteSpace(fallback)
-                ? fallback
-                : secondaryFallback;
-
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            return string.Empty;
-        }
-
-        var trimmed = candidate.Trim();
-        return TruncateSurrogateSafe(trimmed, maxLength);
-    }
-
-    private static string TruncateSurrogateSafe(string value, int maxLength)
-    {
-        if (value.Length <= maxLength)
-        {
-            return value;
-        }
-
-        var length = char.IsHighSurrogate(value[maxLength - 1])
-            ? maxLength - 1
-            : maxLength;
-
-        return value[..length].TrimEnd();
-    }
-
-    private static string? ResolveThumbnailUrl(string? preferredUrl, string? fallbackUrl)
-    {
-        if (TryNormalizeThumbnailUrl(preferredUrl, out var validPreferred))
-        {
-            return validPreferred;
-        }
-
-        if (TryNormalizeThumbnailUrl(fallbackUrl, out var validFallback))
-        {
-            return validFallback;
-        }
-
-        return null;
-    }
-
-    private static bool TryNormalizeThumbnailUrl(string? rawUrl, out string? normalizedUrl)
-    {
-        if (!string.IsNullOrWhiteSpace(rawUrl))
-        {
-            var trimmed = rawUrl.Trim();
-            if (trimmed.Length <= CatalogVideo.MaxThumbnailUrlLength &&
-                Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) &&
-                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
-                !string.IsNullOrWhiteSpace(uri.Host))
-            {
-                normalizedUrl = trimmed;
-                return true;
-            }
-        }
-
-        normalizedUrl = null;
-        return false;
-    }
-
-    private static string ResolveVideoLanguage(string? defaultLanguage, string channelLanguage)
-    {
-        if (!string.IsNullOrWhiteSpace(defaultLanguage))
-        {
-            var trimmed = defaultLanguage.Trim();
-            if (trimmed.StartsWith(SourceSearchQuery.EnglishCode, StringComparison.OrdinalIgnoreCase))
-            {
-                return SourceSearchQuery.EnglishCode;
-            }
-
-            if (trimmed.StartsWith(SourceSearchQuery.ArabicCode, StringComparison.OrdinalIgnoreCase))
-            {
-                return SourceSearchQuery.ArabicCode;
-            }
-        }
-
-        return channelLanguage;
     }
 }

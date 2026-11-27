@@ -23,6 +23,20 @@ public sealed record YouTubeVideoMetadataItem(
     long? LikeCount,
     DateTimeOffset? PublishedAtUtc);
 
+public sealed record YouTubeSearchFallbackItem(
+    string YouTubeVideoId,
+    string ChannelExternalId,
+    string ChannelName,
+    string Title,
+    string Description,
+    string? ThumbnailUrl,
+    string Language,
+    DateTimeOffset PublishedAtUtc);
+
 public sealed record VideoDiscoveryLimits(
     int MetadataBatchSize = 50,
-    int MaxVideosPerChannelPerSync = 15);
+    int MaxVideosPerChannelPerSync = 15,
+    bool EnableSearchFallback = true,
+    int MinLocalCandidatesThreshold = 15,
+    int MaxFallbackQueriesPerDiscovery = 2,
+    int MaxFallbackResultsPerQuery = 10);

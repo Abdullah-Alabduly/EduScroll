@@ -8,6 +8,10 @@ public sealed class YouTubeOptions
 
     public const int MaxAllowedVideosPerChannelPerSync = 50;
 
+    public const int MaxAllowedFallbackQueriesPerDiscovery = 5;
+
+    public const int MaxAllowedFallbackResultsPerQuery = 25;
+
     public string ApiBaseUrl { get; set; } = "https://www.googleapis.com/youtube/v3";
 
     public string RssBaseUrl { get; set; } = "https://www.youtube.com/feeds/videos.xml";
@@ -27,4 +31,12 @@ public sealed class YouTubeOptions
     public int MetadataBatchSize { get; set; } = 50;
 
     public int MaxVideosPerChannelPerSync { get; set; } = 15;
+
+    public bool EnableSearchFallback { get; set; } = true;
+
+    public int MinLocalCandidatesThreshold { get; set; } = 15;
+
+    public int MaxFallbackQueriesPerDiscovery { get; set; } = 2;
+
+    public int MaxFallbackResultsPerQuery { get; set; } = 10;
 }

@@ -1,9 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Xml;
 using EduScroll.Application.Exceptions;
 using EduScroll.Application.VideoDiscovery.Models;
@@ -19,20 +17,11 @@ namespace EduScroll.Infrastructure.VideoDiscovery;
 /// Enforces batch chunking (max 50 IDs/request), per-attempt timeouts, bounded exponential backoff,
 /// immediate caller cancellation propagation, and strict API key redaction across logs and exceptions.
 /// </summary>
-public sealed partial class YouTubeVideoMetadataClient(
+public sealed class YouTubeVideoMetadataClient(
     HttpClient httpClient,
     IOptions<YouTubeOptions> options,
     ILogger<YouTubeVideoMetadataClient> logger) : IYouTubeVideoMetadataClient
 {
-    private static readonly string[] ThumbnailPriorityKeys =
-    [
-        "high",
-        "medium",
-        "standard",
-        "maxres",
-        "default"
-    ];
-
     public async Task<IReadOnlyDictionary<string, YouTubeVideoMetadataItem>> GetVideoMetadataAsync(
         IReadOnlyCollection<string> videoIds,
         CancellationToken cancellationToken)
@@ -95,7 +84,7 @@ public sealed partial class YouTubeVideoMetadataClient(
 
             try
             {
-                using var httpRequest = BuildHttpRequest(endpoint);
+                using var httpRequest = YouTubeDataApiHelper.BuildHttpRequest(endpoint);
                 using var response = await httpClient.SendAsync(
                     httpRequest,
                     HttpCompletionOption.ResponseHeadersRead,
@@ -137,8 +126,8 @@ public sealed partial class YouTubeVideoMetadataClient(
 
                 if (statusCode == HttpStatusCode.Forbidden)
                 {
-                    var forbiddenKind = ClassifyForbiddenError(forbiddenBody);
-                    if (forbiddenKind == ForbiddenErrorKind.RateLimited && attempt < maxAttempts)
+                    var forbiddenKind = YouTubeDataApiHelper.ClassifyForbiddenError(forbiddenBody);
+                    if (forbiddenKind == YouTubeDataApiHelper.ForbiddenErrorKind.RateLimited && attempt < maxAttempts)
                     {
                         await YouTubeHttpRetryHelper.DelayBackoffAsync(
                             config.RetryBaseDelayMilliseconds,
@@ -147,7 +136,7 @@ public sealed partial class YouTubeVideoMetadataClient(
                         continue;
                     }
 
-                    throw MapForbiddenError(forbiddenKind);
+                    throw YouTubeDataApiHelper.MapForbiddenError(forbiddenKind);
                 }
 
                 if (YouTubeHttpRetryHelper.IsTransientStatus(statusCode) && attempt < maxAttempts)
@@ -159,7 +148,7 @@ public sealed partial class YouTubeVideoMetadataClient(
                     continue;
                 }
 
-                throw MapHttpStatusError(statusCode);
+                throw YouTubeDataApiHelper.MapHttpStatusError(statusCode);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -192,7 +181,7 @@ public sealed partial class YouTubeVideoMetadataClient(
             catch (HttpRequestException ex)
             {
                 stopwatch.Stop();
-                var sanitizedError = RedactSensitiveText(ex.Message, apiKey);
+                var sanitizedError = YouTubeDataApiHelper.RedactSensitiveText(ex.Message, apiKey);
                 logger.LogWarning(
                     "YouTube Data API transport error. BatchSize={BatchSize} Attempt={Attempt}/{MaxAttempts} Error={Error}",
                     batch.Length,
@@ -218,35 +207,11 @@ public sealed partial class YouTubeVideoMetadataClient(
 
     private static Uri BuildVideosEndpoint(string apiBaseUrl, string[] batch, string apiKey)
     {
-        if (string.IsNullOrWhiteSpace(apiBaseUrl))
-        {
-            throw new ExternalDependencyAppException(
-                "YouTube Data API base URL is not configured.",
-                "YOUTUBE_API_CONFIGURATION_INVALID");
-        }
-
-        var normalizedBase = apiBaseUrl.Trim().TrimEnd('/');
         var escapedIds = string.Join(',', batch.Select(Uri.EscapeDataString));
         var escapedKey = Uri.EscapeDataString(apiKey);
-        var endpointString = $"{normalizedBase}/videos?part=snippet,contentDetails,statistics&id={escapedIds}&key={escapedKey}";
-
-        if (!Uri.TryCreate(endpointString, UriKind.Absolute, out var endpoint) ||
-            (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps) ||
-            string.IsNullOrWhiteSpace(endpoint.Host))
-        {
-            throw new ExternalDependencyAppException(
-                "YouTube Data API base URL is invalid.",
-                "YOUTUBE_API_CONFIGURATION_INVALID");
-        }
-
-        return endpoint;
-    }
-
-    private static HttpRequestMessage BuildHttpRequest(Uri endpoint)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        return request;
+        return YouTubeDataApiHelper.BuildEndpointUri(
+            apiBaseUrl,
+            $"videos?part=snippet,contentDetails,statistics&id={escapedIds}&key={escapedKey}");
     }
 
     private int ParseBatchResponse(
@@ -330,7 +295,7 @@ public sealed partial class YouTubeVideoMetadataClient(
 
     private static YouTubeVideoMetadataItem? ParseVideoItem(JsonElement itemElement)
     {
-        var videoId = GetOptionalTrimmedString(itemElement, "id");
+        var videoId = YouTubeDataApiHelper.GetOptionalTrimmedString(itemElement, "id");
         if (string.IsNullOrWhiteSpace(videoId))
         {
             return null;
@@ -344,27 +309,28 @@ public sealed partial class YouTubeVideoMetadataClient(
         string? defaultLanguage = null;
         DateTimeOffset? publishedAtUtc = null;
 
-        if (TryGetObject(itemElement, "snippet", out var snippet))
+        if (YouTubeDataApiHelper.TryGetObject(itemElement, "snippet", out var snippet))
         {
-            channelExternalId = GetOptionalTrimmedString(snippet, "channelId");
-            channelName = GetOptionalTrimmedString(snippet, "channelTitle");
-            title = GetOptionalTrimmedString(snippet, "title");
-            description = GetOptionalTrimmedString(snippet, "description");
-            thumbnailUrl = ExtractBestThumbnailUrl(snippet);
-            defaultLanguage = GetOptionalTrimmedString(snippet, "defaultAudioLanguage")
-                ?? GetOptionalTrimmedString(snippet, "defaultLanguage");
-            publishedAtUtc = TryGetDateTimeOffset(snippet, "publishedAt");
+            channelExternalId = YouTubeDataApiHelper.GetOptionalTrimmedString(snippet, "channelId");
+            channelName = YouTubeDataApiHelper.GetOptionalTrimmedString(snippet, "channelTitle");
+            title = YouTubeDataApiHelper.GetOptionalTrimmedString(snippet, "title");
+            description = YouTubeDataApiHelper.GetOptionalTrimmedString(snippet, "description");
+            thumbnailUrl = YouTubeDataApiHelper.ExtractBestThumbnailUrl(snippet);
+            defaultLanguage = YouTubeDataApiHelper.GetOptionalTrimmedString(snippet, "defaultAudioLanguage")
+                ?? YouTubeDataApiHelper.GetOptionalTrimmedString(snippet, "defaultLanguage");
+            publishedAtUtc = YouTubeDataApiHelper.TryGetDateTimeOffset(snippet, "publishedAt");
         }
 
         int? durationSeconds = null;
-        if (TryGetObject(itemElement, "contentDetails", out var contentDetails))
+        if (YouTubeDataApiHelper.TryGetObject(itemElement, "contentDetails", out var contentDetails))
         {
-            durationSeconds = ParseIso8601DurationSeconds(GetOptionalTrimmedString(contentDetails, "duration"));
+            durationSeconds = ParseIso8601DurationSeconds(
+                YouTubeDataApiHelper.GetOptionalTrimmedString(contentDetails, "duration"));
         }
 
         long? viewCount = null;
         long? likeCount = null;
-        if (TryGetObject(itemElement, "statistics", out var statistics))
+        if (YouTubeDataApiHelper.TryGetObject(itemElement, "statistics", out var statistics))
         {
             viewCount = ParseOptionalInt64(statistics, "viewCount");
             likeCount = ParseOptionalInt64(statistics, "likeCount");
@@ -382,25 +348,6 @@ public sealed partial class YouTubeVideoMetadataClient(
             ViewCount: viewCount,
             LikeCount: likeCount,
             PublishedAtUtc: publishedAtUtc);
-    }
-
-    private static string? ExtractBestThumbnailUrl(JsonElement snippet)
-    {
-        if (!TryGetObject(snippet, "thumbnails", out var thumbnails))
-        {
-            return null;
-        }
-
-        foreach (var key in ThumbnailPriorityKeys)
-        {
-            if (TryGetObject(thumbnails, key, out var thumbnail) &&
-                GetOptionalTrimmedString(thumbnail, "url") is { } url)
-            {
-                return url;
-            }
-        }
-
-        return null;
     }
 
     private static int? ParseIso8601DurationSeconds(string? isoDuration)
@@ -454,187 +401,5 @@ public sealed partial class YouTubeVideoMetadataClient(
         }
 
         return null;
-    }
-
-    private static DateTimeOffset? TryGetDateTimeOffset(JsonElement element, string propertyName)
-    {
-        var raw = GetOptionalTrimmedString(element, propertyName);
-        if (raw is null)
-        {
-            return null;
-        }
-
-        return DateTimeOffset.TryParse(
-            raw,
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
-            out var parsed)
-            ? parsed
-            : null;
-    }
-
-    private static bool TryGetObject(JsonElement element, string propertyName, out JsonElement obj)
-    {
-        if (element.TryGetProperty(propertyName, out obj) &&
-            obj.ValueKind == JsonValueKind.Object)
-        {
-            return true;
-        }
-
-        obj = default;
-        return false;
-    }
-
-    private static string? GetOptionalTrimmedString(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var prop) ||
-            prop.ValueKind != JsonValueKind.String)
-        {
-            return null;
-        }
-
-        var raw = prop.GetString();
-        return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
-    }
-
-    private static ForbiddenErrorKind ClassifyForbiddenError(string? responseBody)
-    {
-        if (string.IsNullOrWhiteSpace(responseBody))
-        {
-            return ForbiddenErrorKind.AuthFailed;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(responseBody);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
-                !TryGetObject(doc.RootElement, "error", out var errorEl))
-            {
-                return ForbiddenErrorKind.AuthFailed;
-            }
-
-            var hasRateLimitReason = false;
-
-            if (errorEl.TryGetProperty("errors", out var errorsEl) &&
-                errorsEl.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var entry in errorsEl.EnumerateArray())
-                {
-                    if (entry.ValueKind != JsonValueKind.Object)
-                    {
-                        continue;
-                    }
-
-                    var reason = GetOptionalTrimmedString(entry, "reason");
-                    if (IsQuotaReason(reason))
-                    {
-                        return ForbiddenErrorKind.QuotaExceeded;
-                    }
-
-                    if (IsRateLimitReason(reason))
-                    {
-                        hasRateLimitReason = true;
-                    }
-
-                    var entryMessage = GetOptionalTrimmedString(entry, "message");
-                    if (ContainsQuotaKeyword(entryMessage))
-                    {
-                        return ForbiddenErrorKind.QuotaExceeded;
-                    }
-                }
-            }
-
-            var errorMessage = GetOptionalTrimmedString(errorEl, "message");
-            if (ContainsQuotaKeyword(errorMessage))
-            {
-                return ForbiddenErrorKind.QuotaExceeded;
-            }
-
-            return hasRateLimitReason
-                ? ForbiddenErrorKind.RateLimited
-                : ForbiddenErrorKind.AuthFailed;
-        }
-        catch (JsonException)
-        {
-            return ForbiddenErrorKind.AuthFailed;
-        }
-    }
-
-    private static bool IsQuotaReason(string? reason) =>
-        string.Equals(reason, "quotaExceeded", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(reason, "dailyLimitExceeded", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsRateLimitReason(string? reason) =>
-        string.Equals(reason, "rateLimitExceeded", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(reason, "userRateLimitExceeded", StringComparison.OrdinalIgnoreCase);
-
-    private static bool ContainsQuotaKeyword(string? message) =>
-        !string.IsNullOrWhiteSpace(message) &&
-        message.Contains("quota", StringComparison.OrdinalIgnoreCase);
-
-    private static AppException MapForbiddenError(ForbiddenErrorKind kind) =>
-        kind switch
-        {
-            ForbiddenErrorKind.QuotaExceeded => new ExternalDependencyAppException(
-                "YouTube Data API quota has been exceeded.",
-                "YOUTUBE_API_QUOTA_EXCEEDED"),
-            ForbiddenErrorKind.RateLimited => new ExternalDependencyAppException(
-                "YouTube Data API is currently rate-limited. Please try again shortly.",
-                "YOUTUBE_API_RATE_LIMITED"),
-            _ => new ExternalDependencyAppException(
-                "YouTube Data API authentication or authorization failed.",
-                "YOUTUBE_API_AUTH_FAILED")
-        };
-
-    private static AppException MapHttpStatusError(HttpStatusCode statusCode) =>
-        statusCode switch
-        {
-            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
-                new ExternalDependencyAppException(
-                    "YouTube Data API authentication or authorization failed.",
-                    "YOUTUBE_API_AUTH_FAILED"),
-            HttpStatusCode.TooManyRequests =>
-                new ExternalDependencyAppException(
-                    "YouTube Data API is currently rate-limited. Please try again shortly.",
-                    "YOUTUBE_API_RATE_LIMITED"),
-            HttpStatusCode.RequestTimeout =>
-                new GatewayTimeoutAppException(
-                    "YouTube Data API request timed out. Please try again later.",
-                    "YOUTUBE_API_TIMEOUT"),
-            _ => new ExternalDependencyAppException(
-                "YouTube Data API is currently unavailable. Please try again later.",
-                "YOUTUBE_API_UNAVAILABLE")
-        };
-
-    private static string RedactSensitiveText(string? text, string apiKey)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return string.Empty;
-        }
-
-        var sanitized = text;
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            sanitized = sanitized.Replace(apiKey, "[REDACTED]", StringComparison.Ordinal);
-
-            var escapedKey = Uri.EscapeDataString(apiKey);
-            if (!string.IsNullOrEmpty(escapedKey))
-            {
-                sanitized = sanitized.Replace(escapedKey, "[REDACTED]", StringComparison.OrdinalIgnoreCase);
-            }
-        }
-
-        return KeyQueryParameterRegex().Replace(sanitized, "$1[REDACTED]");
-    }
-
-    [GeneratedRegex(@"([?&]key=)[^&\s""']+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex KeyQueryParameterRegex();
-
-    private enum ForbiddenErrorKind
-    {
-        AuthFailed,
-        QuotaExceeded,
-        RateLimited
     }
 }

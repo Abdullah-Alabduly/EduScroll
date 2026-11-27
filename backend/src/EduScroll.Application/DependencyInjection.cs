@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.TryAddScoped<ISourceService, SourceService>();
         services.TryAddScoped<ISourceAnalysisService, SourceAnalysisService>();
         services.TryAddScoped<IWhitelistCatalogSyncService, WhitelistCatalogSyncService>();
+        services.TryAddScoped<IVideoDiscoveryEngine, VideoDiscoveryEngine>();
 
         return services;
     }

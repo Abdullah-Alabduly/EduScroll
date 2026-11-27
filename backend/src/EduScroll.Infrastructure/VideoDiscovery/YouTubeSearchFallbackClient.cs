@@ -60,6 +60,7 @@ public sealed class YouTubeSearchFallbackClient(
             trimmedQuery,
             normalizedLanguage,
             boundedMaxResults,
+            config.SearchVideoDuration,
             apiKey);
 
         var maxAttempts = 1 + Math.Max(0, config.MaxRetries);
@@ -205,13 +206,19 @@ public sealed class YouTubeSearchFallbackClient(
         string query,
         string relevanceLanguage,
         int maxResults,
+        string? searchVideoDuration,
         string apiKey)
     {
         var escapedLang = Uri.EscapeDataString(relevanceLanguage);
         var escapedQuery = Uri.EscapeDataString(query);
         var escapedKey = Uri.EscapeDataString(apiKey);
+        var normalizedDuration = searchVideoDuration?.Trim().ToLowerInvariant();
+        var durationParam = normalizedDuration is "short" or "medium" or "long"
+            ? $"&videoDuration={Uri.EscapeDataString(normalizedDuration)}"
+            : string.Empty;
+
         var relative =
-            $"search?part=snippet&type=video&videoEmbeddable=true&safeSearch=strict&relevanceLanguage={escapedLang}&q={escapedQuery}&maxResults={maxResults}&key={escapedKey}";
+            $"search?part=snippet&type=video&videoEmbeddable=true&safeSearch=strict&relevanceLanguage={escapedLang}{durationParam}&q={escapedQuery}&maxResults={maxResults}&key={escapedKey}";
 
         return YouTubeDataApiHelper.BuildEndpointUri(apiBaseUrl, relative);
     }

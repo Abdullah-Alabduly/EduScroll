@@ -364,6 +364,31 @@ public sealed class WhitelistCatalogSyncServiceTests
             return Task.FromResult<IReadOnlyList<WhitelistedChannel>>(query.ToArray());
         }
 
+        public Task<IReadOnlyList<WhitelistedChannel>> ListAsync(
+            string? language,
+            bool? isActive,
+            CancellationToken cancellationToken)
+        {
+            IEnumerable<WhitelistedChannel> query = _channels;
+            if (isActive.HasValue)
+            {
+                query = query.Where(c => c.IsActive == isActive.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(language))
+            {
+                query = query.Where(c => string.Equals(c.Language, language, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return Task.FromResult<IReadOnlyList<WhitelistedChannel>>(query.ToArray());
+        }
+
+        public Task AddAsync(WhitelistedChannel channel, CancellationToken cancellationToken)
+        {
+            _channels.Add(channel);
+            return Task.CompletedTask;
+        }
+
         public Task AddOrUpdateAsync(WhitelistedChannel channel, CancellationToken cancellationToken)
         {
             _channels.Add(channel);
@@ -409,7 +434,8 @@ public sealed class WhitelistCatalogSyncServiceTests
             IReadOnlyCollection<string> languages,
             IReadOnlyCollection<string>? searchTerms,
             int maxResults,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            int? maxDurationSeconds = null) =>
             Task.FromResult<IReadOnlyList<CatalogVideo>>([]);
     }
 }

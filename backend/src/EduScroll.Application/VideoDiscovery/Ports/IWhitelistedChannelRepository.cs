@@ -14,6 +14,13 @@ public interface IWhitelistedChannelRepository
         string? language,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<WhitelistedChannel>> ListAsync(
+        string? language,
+        bool? isActive,
+        CancellationToken cancellationToken);
+
+    Task AddAsync(WhitelistedChannel channel, CancellationToken cancellationToken);
+
     Task AddOrUpdateAsync(WhitelistedChannel channel, CancellationToken cancellationToken);
 
     Task MarkSyncedAsync(

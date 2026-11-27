@@ -12,6 +12,10 @@ public sealed class YouTubeOptions
 
     public const int MaxAllowedFallbackResultsPerQuery = 25;
 
+    public const int MinAllowedVideoDurationSeconds = 30;
+
+    public const int MaxAllowedVideoDurationSeconds = 3600;
+
     public string ApiBaseUrl { get; set; } = "https://www.googleapis.com/youtube/v3";
 
     public string RssBaseUrl { get; set; } = "https://www.youtube.com/feeds/videos.xml";
@@ -39,4 +43,8 @@ public sealed class YouTubeOptions
     public int MaxFallbackQueriesPerDiscovery { get; set; } = 2;
 
     public int MaxFallbackResultsPerQuery { get; set; } = 10;
+
+    public string SearchVideoDuration { get; set; } = "short";
+
+    public int MaxVideoDurationSeconds { get; set; } = 240;
 }

@@ -1,3 +1,4 @@
+using EduScroll.Application.Exceptions;
 using EduScroll.Application.VideoDiscovery.Ports;
 using EduScroll.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -55,6 +56,80 @@ public sealed class WhitelistedChannelRepository(ApplicationDbContext dbContext)
             .OrderByDescending(c => c.TrustScore)
             .ThenBy(c => c.Name)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WhitelistedChannel>> ListAsync(
+        string? language,
+        bool? isActive,
+        CancellationToken cancellationToken)
+    {
+        var query = dbContext.WhitelistedChannels.AsNoTracking();
+
+        if (isActive.HasValue)
+        {
+            query = query.Where(c => c.IsActive == isActive.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            var normalizedLang = language.Trim().ToLowerInvariant();
+            query = query.Where(c => c.Language == normalizedLang);
+        }
+
+        return await query
+            .OrderByDescending(c => c.IsActive)
+            .ThenByDescending(c => c.TrustScore)
+            .ThenBy(c => c.Name)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task AddAsync(
+        WhitelistedChannel channel,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+
+        try
+        {
+            await strategy.ExecuteAsync(async ct =>
+            {
+                try
+                {
+                    var exists = await dbContext.WhitelistedChannels
+                        .AsNoTracking()
+                        .AnyAsync(c => c.YouTubeChannelId == channel.YouTubeChannelId, ct);
+
+                    if (exists)
+                    {
+                        throw new ConflictAppException(
+                            $"A whitelisted channel with YouTube channel ID '{channel.YouTubeChannelId}' already exists.",
+                            "CHANNEL_ALREADY_EXISTS");
+                    }
+
+                    if (dbContext.Entry(channel).State == EntityState.Detached)
+                    {
+                        await dbContext.WhitelistedChannels.AddAsync(channel, ct);
+                    }
+
+                    await dbContext.SaveChangesAsync(ct);
+                }
+                catch
+                {
+                    dbContext.ChangeTracker.Clear();
+                    throw;
+                }
+            }, cancellationToken);
+        }
+        catch (DbUpdateException ex) when (
+            VideoCatalogRepository.IsUniqueConstraintViolation(ex, YouTubeChannelIdIndexName))
+        {
+            dbContext.ChangeTracker.Clear();
+            throw new ConflictAppException(
+                $"A whitelisted channel with YouTube channel ID '{channel.YouTubeChannelId}' already exists.",
+                "CHANNEL_ALREADY_EXISTS");
+        }
     }
 
     public async Task AddOrUpdateAsync(

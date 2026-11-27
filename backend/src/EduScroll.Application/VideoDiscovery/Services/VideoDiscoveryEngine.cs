@@ -30,20 +30,6 @@ public sealed class VideoDiscoveryEngine(
     private const string FallbackDisabledReason = "FALLBACK_DISABLED";
     private const string DefaultFallbackErrorReason = "YOUTUBE_FALLBACK_FAILED";
 
-    private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "the", "and", "for", "with", "from", "into", "what", "how", "why", "who",
-        "are", "was", "were", "that", "this", "your", "about", "explain", "explained",
-        "tutorial", "course", "introduction", "intro",
-        "في", "من", "على", "عن", "إلى", "ما", "هو", "هي", "شرح", "مقدمة"
-    };
-
-    private static readonly char[] TokenSeparators =
-    [
-        ' ', '\t', '\r', '\n', ',', '.', ';', ':', '!', '?', '؟', '،',
-        '(', ')', '[', ']', '{', '}', '"', '\'', '/', '\\', '|', '+', '='
-    ];
-
     public async Task<VideoDiscoveryResultDto> DiscoverAsync(
         VideoDiscoveryRequest request,
         CancellationToken cancellationToken)
@@ -53,15 +39,19 @@ public sealed class VideoDiscoveryEngine(
         var (desiredCount, enQueries, arQueries) = ValidateAndNormalizeRequest(request);
         var threshold = Math.Max(1, limits.MinLocalCandidatesThreshold);
         var fetchLimit = Math.Max(desiredCount, threshold);
+        var maxDurationSeconds = ResolveMaxDurationSeconds(limits.MaxVideoDurationSeconds);
 
         // Stage 1: Database-First local SQL Server catalog lookup (sequential to respect scoped DbContext).
-        var localVideos = await QueryLocalCatalogAsync(
-            request.TargetFeedLanguage,
-            enQueries,
-            arQueries,
-            request.AdditionalKeywords,
-            fetchLimit,
-            cancellationToken);
+        var localVideos = (await QueryLocalCatalogAsync(
+                request.TargetFeedLanguage,
+                enQueries,
+                arQueries,
+                request.AdditionalKeywords,
+                fetchLimit,
+                maxDurationSeconds,
+                cancellationToken))
+            .Where(v => IsWithinMaxDuration(v, maxDurationSeconds))
+            .ToList();
 
         if (localVideos.Count >= threshold)
         {
@@ -156,6 +146,10 @@ public sealed class VideoDiscoveryEngine(
             await PersistWriteThroughAsync(fallbackCatalogVideos, cancellationToken);
         }
 
+        var eligibleFallbackVideos = fallbackCatalogVideos
+            .Where(v => IsWithinMaxDuration(v, maxDurationSeconds))
+            .ToList();
+
         var localUsedCount = Math.Min(localVideos.Count, desiredCount);
         var remainingSlots = desiredCount - localUsedCount;
 
@@ -163,7 +157,7 @@ public sealed class VideoDiscoveryEngine(
             .Take(localUsedCount)
             .Select(CatalogVideoMappingHelper.MapToCandidateDto);
 
-        var fallbackDtos = fallbackCatalogVideos
+        var fallbackDtos = eligibleFallbackVideos
             .Take(remainingSlots)
             .Select(CatalogVideoMappingHelper.MapToCandidateDto)
             .ToArray();
@@ -305,27 +299,40 @@ public sealed class VideoDiscoveryEngine(
         IReadOnlyList<VideoDiscoveryQueryInput> arQueries,
         IReadOnlyList<string>? additionalKeywords,
         int fetchLimit,
+        int maxDurationSeconds,
         CancellationToken cancellationToken)
     {
         if (targetLanguage == TargetFeedLanguage.En)
         {
-            var enTerms = BuildSearchTerms(enQueries, additionalKeywords, SourceSearchQuery.EnglishCode);
+            var enTerms = SearchQueryTokenizer.BuildSanitizedTerms(enQueries, additionalKeywords, MaxSearchTermsPerLanguage);
+            if (enTerms.Length == 0)
+            {
+                return [];
+            }
+
             var enVideos = await videoCatalogRepository.SearchByLanguageAsync(
                 [SourceSearchQuery.EnglishCode],
                 enTerms,
                 fetchLimit,
-                cancellationToken);
+                cancellationToken,
+                maxDurationSeconds);
             return DeduplicateCatalogVideos(enVideos);
         }
 
         if (targetLanguage == TargetFeedLanguage.Ar)
         {
-            var arTerms = BuildSearchTerms(arQueries, additionalKeywords, SourceSearchQuery.ArabicCode);
+            var arTerms = SearchQueryTokenizer.BuildSanitizedTerms(arQueries, additionalKeywords, MaxSearchTermsPerLanguage);
+            if (arTerms.Length == 0)
+            {
+                return [];
+            }
+
             var arVideos = await videoCatalogRepository.SearchByLanguageAsync(
                 [SourceSearchQuery.ArabicCode],
                 arTerms,
                 fetchLimit,
-                cancellationToken);
+                cancellationToken,
+                maxDurationSeconds);
             return DeduplicateCatalogVideos(arVideos);
         }
 
@@ -333,23 +340,31 @@ public sealed class VideoDiscoveryEngine(
         IReadOnlyList<CatalogVideo> enResults = [];
         if (enQueries.Count > 0)
         {
-            var enTerms = BuildSearchTerms(enQueries, additionalKeywords, SourceSearchQuery.EnglishCode);
-            enResults = await videoCatalogRepository.SearchByLanguageAsync(
-                [SourceSearchQuery.EnglishCode],
-                enTerms,
-                fetchLimit,
-                cancellationToken);
+            var enTerms = SearchQueryTokenizer.BuildSanitizedTerms(enQueries, additionalKeywords, MaxSearchTermsPerLanguage);
+            if (enTerms.Length > 0)
+            {
+                enResults = await videoCatalogRepository.SearchByLanguageAsync(
+                    [SourceSearchQuery.EnglishCode],
+                    enTerms,
+                    fetchLimit,
+                    cancellationToken,
+                    maxDurationSeconds);
+            }
         }
 
         IReadOnlyList<CatalogVideo> arResults = [];
         if (arQueries.Count > 0)
         {
-            var arTerms = BuildSearchTerms(arQueries, additionalKeywords, SourceSearchQuery.ArabicCode);
-            arResults = await videoCatalogRepository.SearchByLanguageAsync(
-                [SourceSearchQuery.ArabicCode],
-                arTerms,
-                fetchLimit,
-                cancellationToken);
+            var arTerms = SearchQueryTokenizer.BuildSanitizedTerms(arQueries, additionalKeywords, MaxSearchTermsPerLanguage);
+            if (arTerms.Length > 0)
+            {
+                arResults = await videoCatalogRepository.SearchByLanguageAsync(
+                    [SourceSearchQuery.ArabicCode],
+                    arTerms,
+                    fetchLimit,
+                    cancellationToken,
+                    maxDurationSeconds);
+            }
         }
 
         return InterleaveAndDeduplicate(enResults, arResults, v => v.YouTubeVideoId);
@@ -593,60 +608,6 @@ public sealed class VideoDiscoveryEngine(
         return Interleave(enQueries, arQueries).Take(maxQueries).ToArray();
     }
 
-    private static string[] BuildSearchTerms(
-        IReadOnlyList<VideoDiscoveryQueryInput> queries,
-        IReadOnlyList<string>? additionalKeywords,
-        string languageCode)
-    {
-        var minTokenLength = languageCode == SourceSearchQuery.ArabicCode ? 2 : 3;
-        var terms = new List<string>(MaxSearchTermsPerLanguage);
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        void TryAddTerm(string? candidate)
-        {
-            if (terms.Count >= MaxSearchTermsPerLanguage || string.IsNullOrWhiteSpace(candidate))
-            {
-                return;
-            }
-
-            var normalized = NormalizeWhitespace(candidate);
-            if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
-            {
-                terms.Add(normalized);
-            }
-        }
-
-        foreach (var query in queries)
-        {
-            TryAddTerm(query.Query);
-        }
-
-        if (additionalKeywords is not null)
-        {
-            foreach (var keyword in additionalKeywords)
-            {
-                if (!string.IsNullOrWhiteSpace(keyword) && keyword.Trim().Length >= minTokenLength)
-                {
-                    TryAddTerm(keyword);
-                }
-            }
-        }
-
-        foreach (var query in queries)
-        {
-            var tokens = query.Query.Split(TokenSeparators, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var token in tokens)
-            {
-                if (token.Length >= minTokenLength && !StopWords.Contains(token))
-                {
-                    TryAddTerm(token);
-                }
-            }
-        }
-
-        return [.. terms];
-    }
-
     private static IReadOnlyList<CatalogVideo> DeduplicateCatalogVideos(IReadOnlyList<CatalogVideo> videos) =>
         DeduplicateItems(videos, v => v.YouTubeVideoId);
 
@@ -706,6 +667,12 @@ public sealed class VideoDiscoveryEngine(
             or "YOUTUBE_API_QUOTA_EXCEEDED"
             or "YOUTUBE_API_AUTH_FAILED"
             or "YOUTUBE_API_RATE_LIMITED";
+
+    private static int ResolveMaxDurationSeconds(int configuredMaxDurationSeconds) =>
+        configuredMaxDurationSeconds > 0 ? configuredMaxDurationSeconds : 240;
+
+    private static bool IsWithinMaxDuration(CatalogVideo video, int maxDurationSeconds) =>
+        !video.DurationSeconds.HasValue || video.DurationSeconds.Value <= maxDurationSeconds;
 
     private static string NormalizeWhitespace(string? value)
     {

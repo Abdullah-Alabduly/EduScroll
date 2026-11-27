@@ -39,4 +39,5 @@ public sealed record VideoDiscoveryLimits(
     bool EnableSearchFallback = true,
     int MinLocalCandidatesThreshold = 15,
     int MaxFallbackQueriesPerDiscovery = 2,
-    int MaxFallbackResultsPerQuery = 10);
+    int MaxFallbackResultsPerQuery = 10,
+    int MaxVideoDurationSeconds = 240);

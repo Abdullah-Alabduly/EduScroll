@@ -27,7 +27,8 @@ internal static class CatalogVideoMappingHelper
             ViewCount: video.ViewCount,
             LikeCount: video.LikeCount,
             PublishedAtUtc: video.PublishedAtUtc,
-            DiscoverySource: video.DiscoverySource.ToString());
+            DiscoverySource: video.DiscoverySource.ToString(),
+            WatchUrl: $"https://www.youtube.com/watch?v={Uri.EscapeDataString(video.YouTubeVideoId)}");
     }
 
     public static string ResolveRequiredText(

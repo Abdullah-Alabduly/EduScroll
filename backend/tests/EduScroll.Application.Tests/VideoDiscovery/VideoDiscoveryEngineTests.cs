@@ -43,7 +43,11 @@ public sealed class VideoDiscoveryEngineTests
         Assert.Equal(4, result.LocalCandidateCount);
         Assert.Equal(0, result.FallbackCandidateCount);
         Assert.Equal(4, result.Candidates.Count);
-        Assert.All(result.Candidates, c => Assert.Equal("en", c.Language));
+        Assert.All(result.Candidates, c =>
+        {
+            Assert.Equal("en", c.Language);
+            Assert.Equal($"https://www.youtube.com/watch?v={c.YouTubeVideoId}", c.WatchUrl);
+        });
         Assert.Equal(0, fallbackClient.CallCount);
         Assert.Equal(0, metadataClient.CallCount);
         Assert.Equal(0, repo.UpsertCallCount);
@@ -337,6 +341,202 @@ public sealed class VideoDiscoveryEngineTests
                 cts.Token));
     }
 
+    [Fact]
+    public async Task DiscoverAsync_ShouldExcludeBoilerplateFooterAndStopWordFalsePositives_AndRankTitleMatchFirst()
+    {
+        var riemannFooter = new string('A', 420) +
+            " These animations are largely made using a custom Python library, manim. Watch this video on eigenvalues.";
+        var riemannVideo = CreateCatalogVideo(
+            "zqzk43bSdDI",
+            "en",
+            "We've been asking: What if AI solved the Riemann Hypothesis?",
+            FixedNow.AddDays(-1),
+            description: riemannFooter);
+
+        var singleTokenDescVideo = CreateCatalogVideo(
+            "single_tok_1",
+            "en",
+            "Unrelated Geometry Puzzle",
+            FixedNow.AddDays(-2),
+            description: "Quick intro to linear spaces.");
+
+        var exactTitleMatchVideo = CreateCatalogVideo(
+            "PFDu9oVAE-g",
+            "en",
+            "Eigenvectors and eigenvalues | Chapter 14, Essence of linear algebra",
+            FixedNow.AddYears(-5),
+            description: "A visual understanding of eigenvectors, eigenvalues, and the usefulness of an eigenbasis.");
+
+        var repo = new InMemoryVideoCatalogRepository(riemannVideo, singleTokenDescVideo, exactTitleMatchVideo);
+        var fallbackClient = new StubSearchFallbackClient((_, _, _, _) =>
+            Task.FromResult<IReadOnlyList<YouTubeSearchFallbackItem>>([]));
+        var metadataClient = new StubVideoMetadataClient((_, _) =>
+            Task.FromResult<IReadOnlyDictionary<string, YouTubeVideoMetadataItem>>(
+                new Dictionary<string, YouTubeVideoMetadataItem>()));
+
+        var engine = CreateEngine(
+            repo,
+            fallbackClient,
+            metadataClient,
+            new VideoDiscoveryLimits(EnableSearchFallback: true, MinLocalCandidatesThreshold: 1));
+
+        var request = new VideoDiscoveryRequest(
+            SearchQueries:
+            [
+                new VideoDiscoveryQueryInput("eigenvalues and eigenvectors linear algebra video", "en"),
+                new VideoDiscoveryQueryInput("characterizing linear transformations using eigenvalues and eigenvectors", "en")
+            ],
+            TargetFeedLanguage: TargetFeedLanguage.En,
+            DesiredCandidateCount: 10);
+
+        var result = await engine.DiscoverAsync(request, CancellationToken.None);
+
+        Assert.False(result.FallbackTriggered);
+        var only = Assert.Single(result.Candidates);
+        Assert.Equal("PFDu9oVAE-g", only.YouTubeVideoId);
+        Assert.DoesNotContain(result.Candidates, c => c.YouTubeVideoId == "zqzk43bSdDI");
+        Assert.DoesNotContain(result.Candidates, c => c.YouTubeVideoId == "single_tok_1");
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_WithArabicStopWordsAndNoise_ShouldFilterStopWordsAndMatchMeaningfulTokens()
+    {
+        var unrelatedChemistry = CreateCatalogVideo(
+            "ar_chem_1",
+            "ar",
+            "شرح فيديو عن الكيمياء العضوية",
+            FixedNow.AddHours(-1),
+            description: "شرح درس ومقدمة في الكيمياء.");
+        var linearAlgebraAr = CreateCatalogVideo(
+            "ar_linalg_1",
+            "ar",
+            "أساسيات الجبر الخطي للمبتدئين",
+            FixedNow.AddDays(-2),
+            description: "المصفوفات والتحويلات الخطية.");
+
+        var repo = new InMemoryVideoCatalogRepository(unrelatedChemistry, linearAlgebraAr);
+        var fallbackClient = new StubSearchFallbackClient((_, _, _, _) =>
+            Task.FromResult<IReadOnlyList<YouTubeSearchFallbackItem>>([]));
+        var metadataClient = new StubVideoMetadataClient((_, _) =>
+            Task.FromResult<IReadOnlyDictionary<string, YouTubeVideoMetadataItem>>(
+                new Dictionary<string, YouTubeVideoMetadataItem>()));
+
+        var engine = CreateEngine(
+            repo,
+            fallbackClient,
+            metadataClient,
+            new VideoDiscoveryLimits(EnableSearchFallback: true, MinLocalCandidatesThreshold: 1));
+
+        var result = await engine.DiscoverAsync(
+            new VideoDiscoveryRequest(
+                SearchQueries: [new VideoDiscoveryQueryInput("شرح فيديو عن الجبر الخطي", "ar")],
+                TargetFeedLanguage: TargetFeedLanguage.Ar,
+                DesiredCandidateCount: 10),
+            CancellationToken.None);
+
+        var matched = Assert.Single(result.Candidates);
+        Assert.Equal("ar_linalg_1", matched.YouTubeVideoId);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_WhenQueryContainsOnlyStopWords_ShouldSkipCleanlyWithoutThrowing()
+    {
+        var unrelated = CreateCatalogVideo("local_1", "en", "Calculus Primer", FixedNow);
+        var repo = new InMemoryVideoCatalogRepository(unrelated);
+        var fallbackClient = new StubSearchFallbackClient((_, _, _, _) =>
+            Task.FromResult<IReadOnlyList<YouTubeSearchFallbackItem>>([]));
+        var metadataClient = new StubVideoMetadataClient((_, _) =>
+            Task.FromResult<IReadOnlyDictionary<string, YouTubeVideoMetadataItem>>(
+                new Dictionary<string, YouTubeVideoMetadataItem>()));
+
+        var engine = CreateEngine(
+            repo,
+            fallbackClient,
+            metadataClient,
+            new VideoDiscoveryLimits(EnableSearchFallback: false, MinLocalCandidatesThreshold: 1));
+
+        var result = await engine.DiscoverAsync(
+            new VideoDiscoveryRequest(
+                SearchQueries: [new VideoDiscoveryQueryInput("what is a video tutorial explanation", "en")],
+                TargetFeedLanguage: TargetFeedLanguage.En,
+                DesiredCandidateCount: 10),
+            CancellationToken.None);
+
+        Assert.Empty(result.Candidates);
+        Assert.Equal(0, result.LocalCandidateCount);
+        Assert.Equal("FALLBACK_DISABLED", result.FallbackSkippedReason);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_WhenCatalogOrEnrichedFallbackContainsLongVideos_ShouldExcludeVideosExceedingMaxDuration()
+    {
+        var shortLocal = CreateCatalogVideo(
+            "short_local_1",
+            "en",
+            "Eigenvalues Short Intuition",
+            FixedNow.AddHours(-1),
+            durationSeconds: 180);
+
+        var longLocal = CreateCatalogVideo(
+            "long_local_45m",
+            "en",
+            "Eigenvalues Full 45-Minute Lecture",
+            FixedNow,
+            durationSeconds: 2700);
+
+        var repo = new InMemoryVideoCatalogRepository(shortLocal, longLocal);
+
+        var fallbackClient = new StubSearchFallbackClient((_, lang, _, _) =>
+            Task.FromResult<IReadOnlyList<YouTubeSearchFallbackItem>>(
+            [
+                CreateFallbackItem("fb_long_45m", lang, "Eigenvalues Long Seminar", FixedNow.AddMinutes(-5)),
+                CreateFallbackItem("fb_short_3m", lang, "Eigenvalues 3-Min Recap", FixedNow.AddMinutes(-2))
+            ]));
+
+        var metadataClient = new StubVideoMetadataClient((videoIds, _) =>
+        {
+            var dict = videoIds.ToDictionary(
+                id => id,
+                id => new YouTubeVideoMetadataItem(
+                    YouTubeVideoId: id,
+                    ChannelExternalId: "UC_META",
+                    ChannelName: "Math Shorts",
+                    Title: $"Enriched {id}",
+                    Description: "Concise eigenvalue explanation.",
+                    ThumbnailUrl: $"https://i.ytimg.com/vi/{id}/hqdefault.jpg",
+                    DefaultLanguage: "en",
+                    DurationSeconds: id == "fb_long_45m" ? 2700 : 180,
+                    ViewCount: 5000,
+                    LikeCount: 300,
+                    PublishedAtUtc: FixedNow));
+            return Task.FromResult<IReadOnlyDictionary<string, YouTubeVideoMetadataItem>>(dict);
+        });
+
+        var engine = CreateEngine(
+            repo,
+            fallbackClient,
+            metadataClient,
+            new VideoDiscoveryLimits(
+                MinLocalCandidatesThreshold: 3,
+                EnableSearchFallback: true,
+                MaxVideoDurationSeconds: 240));
+
+        var result = await engine.DiscoverAsync(
+            new VideoDiscoveryRequest(
+                SearchQueries: [new VideoDiscoveryQueryInput("eigenvalues", "en")],
+                TargetFeedLanguage: TargetFeedLanguage.En,
+                DesiredCandidateCount: 10),
+            CancellationToken.None);
+
+        Assert.True(result.FallbackTriggered);
+        Assert.Equal(1, result.LocalCandidateCount);
+        Assert.Equal(1, result.FallbackCandidateCount);
+        Assert.Equal(2, result.Candidates.Count);
+        Assert.DoesNotContain(result.Candidates, c => c.YouTubeVideoId == "long_local_45m");
+        Assert.DoesNotContain(result.Candidates, c => c.YouTubeVideoId == "fb_long_45m");
+        Assert.All(result.Candidates, c => Assert.True(c.DurationSeconds is null or <= 240));
+    }
+
     private static VideoDiscoveryEngine CreateEngine(
         IVideoCatalogRepository repo,
         IYouTubeSearchFallbackClient fallbackClient,
@@ -354,17 +554,19 @@ public sealed class VideoDiscoveryEngineTests
         string videoId,
         string language,
         string title,
-        DateTimeOffset publishedAtUtc) =>
+        DateTimeOffset publishedAtUtc,
+        string? description = null,
+        int? durationSeconds = 180) =>
         CatalogVideo.Create(
             youTubeVideoId: videoId,
             whitelistedChannelId: null,
             channelExternalId: "UC_TEST",
             channelName: "Edu Channel",
             title: title,
-            description: $"Description for {title}",
+            description: description ?? $"Description for {title}",
             thumbnailUrl: $"https://i.ytimg.com/vi/{videoId}/hqdefault.jpg",
             language: language,
-            durationSeconds: 180,
+            durationSeconds: durationSeconds,
             viewCount: 1000,
             likeCount: 50,
             publishedAtUtc: publishedAtUtc,
@@ -472,20 +674,48 @@ public sealed class VideoDiscoveryEngineTests
             IReadOnlyCollection<string> languages,
             IReadOnlyCollection<string>? searchTerms,
             int maxResults,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            int? maxDurationSeconds = null)
         {
             var langSet = languages.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var query = _videos.Where(v => langSet.Contains(v.Language));
 
-            if (searchTerms is { Count: > 0 })
+            if (maxDurationSeconds is > 0)
             {
-                var terms = searchTerms.Where(t => !string.IsNullOrWhiteSpace(t)).ToArray();
-                if (terms.Length > 0)
+                var cap = maxDurationSeconds.Value;
+                query = query.Where(v => !v.DurationSeconds.HasValue || v.DurationSeconds.Value <= cap);
+            }
+
+            var terms = (searchTerms ?? [])
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => t.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (terms.Length > 0)
+            {
+                static string Prefix(string desc) => desc.Length <= 400 ? desc : desc[..400];
+                static int CountHits(string text, string[] t) =>
+                    t.Count(term => text.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+                query = query.Where(v =>
                 {
-                    query = query.Where(v => terms.Any(t =>
-                        v.Title.Contains(t, StringComparison.OrdinalIgnoreCase) ||
-                        v.Description.Contains(t, StringComparison.OrdinalIgnoreCase)));
-                }
+                    var titleHits = CountHits(v.Title, terms);
+                    if (titleHits >= 1)
+                    {
+                        return true;
+                    }
+
+                    return terms.Length >= 2 && CountHits(Prefix(v.Description), terms) >= 2;
+                });
+
+                return Task.FromResult<IReadOnlyList<CatalogVideo>>(
+                    query.OrderByDescending(v => CountHits(v.Title, terms))
+                        .ThenByDescending(v => CountHits(Prefix(v.Description), terms))
+                        .ThenByDescending(v => v.PublishedAtUtc)
+                        .ThenByDescending(v => v.ViewCount)
+                        .Take(maxResults)
+                        .ToArray());
             }
 
             return Task.FromResult<IReadOnlyList<CatalogVideo>>(

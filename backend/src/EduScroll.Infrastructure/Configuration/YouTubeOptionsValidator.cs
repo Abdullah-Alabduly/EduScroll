@@ -70,9 +70,31 @@ public sealed class YouTubeOptionsValidator : IValidateOptions<YouTubeOptions>
                 $"YouTube:MaxFallbackResultsPerQuery must be between 1 and {YouTubeOptions.MaxAllowedFallbackResultsPerQuery}.");
         }
 
+        if (!IsValidSearchVideoDuration(options.SearchVideoDuration))
+        {
+            failures.Add("YouTube:SearchVideoDuration must be one of: any, short, medium, long.");
+        }
+
+        if (options.MaxVideoDurationSeconds is < YouTubeOptions.MinAllowedVideoDurationSeconds
+            or > YouTubeOptions.MaxAllowedVideoDurationSeconds)
+        {
+            failures.Add(
+                $"YouTube:MaxVideoDurationSeconds must be between {YouTubeOptions.MinAllowedVideoDurationSeconds} and {YouTubeOptions.MaxAllowedVideoDurationSeconds}.");
+        }
+
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)
             : ValidateOptionsResult.Success;
+    }
+
+    private static bool IsValidSearchVideoDuration(string? duration)
+    {
+        if (string.IsNullOrWhiteSpace(duration))
+        {
+            return false;
+        }
+
+        return duration.Trim().ToLowerInvariant() is "any" or "short" or "medium" or "long";
     }
 
     private static bool IsValidHttpUrl(string? url)

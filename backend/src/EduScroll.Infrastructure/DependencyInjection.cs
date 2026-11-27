@@ -101,7 +101,8 @@ public static class DependencyInjection
                 EnableSearchFallback: opts.EnableSearchFallback,
                 MinLocalCandidatesThreshold: opts.MinLocalCandidatesThreshold,
                 MaxFallbackQueriesPerDiscovery: opts.MaxFallbackQueriesPerDiscovery,
-                MaxFallbackResultsPerQuery: opts.MaxFallbackResultsPerQuery);
+                MaxFallbackResultsPerQuery: opts.MaxFallbackResultsPerQuery,
+                MaxVideoDurationSeconds: opts.MaxVideoDurationSeconds);
         });
 
         if (!services.Any(sd => sd.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)))
@@ -173,7 +174,25 @@ public static class DependencyInjection
 
         services.TryAddScoped<ISourceAnalysisRepository, SourceAnalysisRepository>();
         services.TryAddSingleton<IAiHttpTransport, OllamaHttpTransport>();
-        services.TryAddScoped<IAiAnalysisProvider, OllamaAiAnalysisProvider>();
+        services.TryAddScoped<OllamaAiAnalysisProvider>();
+
+        if (!services.Any(sd => sd.ServiceType == typeof(GeminiAiAnalysisProvider)))
+        {
+            services.AddHttpClient<GeminiAiAnalysisProvider>(client =>
+                {
+                    // Per-attempt timeout is enforced via linked CancellationTokenSource inside the provider.
+                    client.Timeout = Timeout.InfiniteTimeSpan;
+                })
+                .ConfigurePrimaryHttpMessageHandler(CreateYouTubeSocketsHttpHandler);
+        }
+
+        services.TryAddScoped<IAiAnalysisProvider>(serviceProvider =>
+        {
+            var aiOptions = serviceProvider.GetRequiredService<IOptions<AiProviderOptions>>().Value;
+            return string.Equals(aiOptions.Provider?.Trim(), "Gemini", StringComparison.OrdinalIgnoreCase)
+                ? serviceProvider.GetRequiredService<GeminiAiAnalysisProvider>()
+                : serviceProvider.GetRequiredService<OllamaAiAnalysisProvider>();
+        });
 
         services.TryAddScoped<IWhitelistedChannelRepository, WhitelistedChannelRepository>();
         services.TryAddScoped<IVideoCatalogRepository, VideoCatalogRepository>();

@@ -202,6 +202,77 @@ public sealed class YouTubeOptionsValidatorTests
         Assert.Contains(result.Failures!, f => f.Contains("MaxFallbackResultsPerQuery", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("any")]
+    [InlineData("short")]
+    [InlineData("medium")]
+    [InlineData("long")]
+    [InlineData("SHORT")]
+    [InlineData(" Medium ")]
+    public void Validate_WithValidSearchVideoDuration_ShouldSucceed(string duration)
+    {
+        var options = new YouTubeOptions
+        {
+            SearchVideoDuration = duration
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("extra-short")]
+    [InlineData("shortish")]
+    public void Validate_WithInvalidSearchVideoDuration_ShouldFail(string invalidDuration)
+    {
+        var options = new YouTubeOptions
+        {
+            SearchVideoDuration = invalidDuration
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains("SearchVideoDuration", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(30)]
+    [InlineData(240)]
+    [InlineData(3600)]
+    public void Validate_WithValidMaxVideoDurationSeconds_ShouldSucceed(int maxDurationSeconds)
+    {
+        var options = new YouTubeOptions
+        {
+            MaxVideoDurationSeconds = maxDurationSeconds
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(29)]
+    [InlineData(3601)]
+    public void Validate_WithOutOfRangeMaxVideoDurationSeconds_ShouldFail(int invalidMaxDuration)
+    {
+        var options = new YouTubeOptions
+        {
+            MaxVideoDurationSeconds = invalidMaxDuration
+        };
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, f => f.Contains("MaxVideoDurationSeconds", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Validate_WithBoundaryValidValues_ShouldSucceed()
     {
@@ -217,7 +288,9 @@ public sealed class YouTubeOptionsValidatorTests
             EnableSearchFallback = false,
             MinLocalCandidatesThreshold = 1,
             MaxFallbackQueriesPerDiscovery = 1,
-            MaxFallbackResultsPerQuery = 1
+            MaxFallbackResultsPerQuery = 1,
+            SearchVideoDuration = "any",
+            MaxVideoDurationSeconds = YouTubeOptions.MinAllowedVideoDurationSeconds
         };
 
         var maxOptions = new YouTubeOptions
@@ -232,7 +305,9 @@ public sealed class YouTubeOptionsValidatorTests
             EnableSearchFallback = true,
             MinLocalCandidatesThreshold = 15,
             MaxFallbackQueriesPerDiscovery = 5,
-            MaxFallbackResultsPerQuery = 25
+            MaxFallbackResultsPerQuery = 25,
+            SearchVideoDuration = "long",
+            MaxVideoDurationSeconds = YouTubeOptions.MaxAllowedVideoDurationSeconds
         };
 
         Assert.True(_validator.Validate(null, minOptions).Succeeded);

@@ -28,5 +28,6 @@ public interface IVideoCatalogRepository
         IReadOnlyCollection<string> languages,
         IReadOnlyCollection<string>? searchTerms,
         int maxResults,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        int? maxDurationSeconds = null);
 }

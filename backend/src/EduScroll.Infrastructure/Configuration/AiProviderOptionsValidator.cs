@@ -7,7 +7,8 @@ public sealed class AiProviderOptionsValidator : IValidateOptions<AiProviderOpti
 {
     private static readonly HashSet<string> SupportedProviders = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Ollama"
+        "Ollama",
+        "Gemini"
     };
 
     public ValidateOptionsResult Validate(string? name, AiProviderOptions options)
@@ -18,13 +19,10 @@ public sealed class AiProviderOptionsValidator : IValidateOptions<AiProviderOpti
 
         if (string.IsNullOrWhiteSpace(options.Provider) || !SupportedProviders.Contains(options.Provider.Trim()))
         {
-            failures.Add("AiProvider:Provider must be a supported provider ('Ollama').");
+            failures.Add("AiProvider:Provider must be a supported provider ('Ollama' or 'Gemini').");
         }
 
-        if (string.IsNullOrWhiteSpace(options.BaseUrl) ||
-            !Uri.TryCreate(options.BaseUrl.Trim(), UriKind.Absolute, out var baseUri) ||
-            (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps) ||
-            string.IsNullOrWhiteSpace(baseUri.Host))
+        if (!IsValidHttpUrl(options.BaseUrl))
         {
             failures.Add("AiProvider:BaseUrl must be a valid absolute HTTP or HTTPS URL.");
         }
@@ -124,8 +122,70 @@ public sealed class AiProviderOptionsValidator : IValidateOptions<AiProviderOpti
             failures.Add($"AiProvider:PromptVersion is required and must not exceed {SourceAnalysis.MaxPromptVersionLength} characters.");
         }
 
+        ValidateGeminiOptions(options, failures);
+
         return failures.Count > 0
             ? ValidateOptionsResult.Fail(failures)
             : ValidateOptionsResult.Success;
+    }
+
+    private static void ValidateGeminiOptions(AiProviderOptions options, List<string> failures)
+    {
+        var isGeminiActive = string.Equals(options.Provider?.Trim(), "Gemini", StringComparison.OrdinalIgnoreCase);
+
+        if (options.Gemini is null)
+        {
+            failures.Add("AiProvider:Gemini section is required.");
+            return;
+        }
+
+        if (!IsValidHttpUrl(options.Gemini.BaseUrl))
+        {
+            failures.Add("AiProvider:Gemini:BaseUrl must be a valid absolute HTTP or HTTPS URL.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Gemini.Model) ||
+            options.Gemini.Model.Trim().Length > SourceAnalysis.MaxModelNameLength)
+        {
+            failures.Add(
+                $"AiProvider:Gemini:Model is required and must not exceed {SourceAnalysis.MaxModelNameLength} characters.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.Gemini.ApiKey) &&
+            options.Gemini.ApiKey.Contains("REPLACE_WITH_", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add("AiProvider:Gemini:ApiKey contains an unreplaced placeholder value.");
+        }
+        else if (isGeminiActive && string.IsNullOrWhiteSpace(options.Gemini.ApiKey))
+        {
+            failures.Add("AiProvider:Gemini:ApiKey is required when AiProvider:Provider is 'Gemini'.");
+        }
+
+        if (options.Gemini.TimeoutSeconds is < 1 or > 300)
+        {
+            failures.Add("AiProvider:Gemini:TimeoutSeconds must be between 1 and 300.");
+        }
+
+        if (options.Gemini.MaxRetries is < 0 or > 5)
+        {
+            failures.Add("AiProvider:Gemini:MaxRetries must be between 0 and 5.");
+        }
+
+        if (options.Gemini.RetryBaseDelayMilliseconds is < 0 or > 10_000)
+        {
+            failures.Add("AiProvider:Gemini:RetryBaseDelayMilliseconds must be between 0 and 10000.");
+        }
+    }
+
+    private static bool IsValidHttpUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return false;
+        }
+
+        return Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+               !string.IsNullOrWhiteSpace(uri.Host);
     }
 }

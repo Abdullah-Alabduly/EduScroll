@@ -18,4 +18,5 @@ public sealed record VideoCandidateDto(
     long ViewCount,
     long LikeCount,
     DateTimeOffset PublishedAtUtc,
-    string DiscoverySource);
+    string DiscoverySource,
+    string WatchUrl);

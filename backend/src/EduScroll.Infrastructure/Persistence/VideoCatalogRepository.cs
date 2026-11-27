@@ -10,6 +10,7 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
     : IVideoCatalogRepository
 {
     private const int MaxSearchTerms = 20;
+    private const int DescriptionMatchPrefixLength = 400;
     private const int MaxUniqueConstraintRetries = 2;
     private const string YouTubeVideoIdIndexName = "IX_CatalogVideos_YouTubeVideoId";
 
@@ -154,7 +155,8 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
         IReadOnlyCollection<string> languages,
         IReadOnlyCollection<string>? searchTerms,
         int maxResults,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? maxDurationSeconds = null)
     {
         ArgumentNullException.ThrowIfNull(languages);
 
@@ -188,6 +190,7 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
                 normalizedLanguages[0],
                 cleanedTerms,
                 boundedMax,
+                maxDurationSeconds,
                 cancellationToken);
         }
 
@@ -199,12 +202,24 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
                 language,
                 cleanedTerms,
                 boundedMax,
+                maxDurationSeconds,
                 cancellationToken);
             combined.AddRange(perLang);
         }
 
+        if (cleanedTerms.Length == 0)
+        {
+            return combined
+                .OrderByDescending(v => v.PublishedAtUtc)
+                .ThenByDescending(v => v.ViewCount)
+                .Take(boundedMax)
+                .ToArray();
+        }
+
         return combined
-            .OrderByDescending(v => v.PublishedAtUtc)
+            .OrderByDescending(v => CountDistinctTermMatches(v.Title, cleanedTerms))
+            .ThenByDescending(v => CountDistinctTermMatches(GetDescriptionPrefix(v.Description), cleanedTerms))
+            .ThenByDescending(v => v.PublishedAtUtc)
             .ThenByDescending(v => v.ViewCount)
             .Take(boundedMax)
             .ToArray();
@@ -214,19 +229,35 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
         string language,
         string[] cleanedTerms,
         int maxResults,
+        int? maxDurationSeconds,
         CancellationToken cancellationToken)
     {
         IQueryable<CatalogVideo> query = dbContext.CatalogVideos
             .AsNoTracking()
             .Where(v => v.Language == language);
 
-        if (cleanedTerms.Length > 0)
+        if (maxDurationSeconds is > 0)
         {
-            query = query.Where(BuildKeywordFilterExpression(cleanedTerms));
+            var maxDuration = maxDurationSeconds.Value;
+            query = query.Where(v => !v.DurationSeconds.HasValue || v.DurationSeconds.Value <= maxDuration);
         }
 
+        if (cleanedTerms.Length == 0)
+        {
+            return await query
+                .OrderByDescending(v => v.PublishedAtUtc)
+                .ThenByDescending(v => v.ViewCount)
+                .Take(maxResults)
+                .ToListAsync(cancellationToken);
+        }
+
+        var (filterExpr, titleScoreExpr, descScoreExpr) = BuildKeywordSearchExpressions(cleanedTerms);
+
         return await query
-            .OrderByDescending(v => v.PublishedAtUtc)
+            .Where(filterExpr)
+            .OrderByDescending(titleScoreExpr)
+            .ThenByDescending(descScoreExpr)
+            .ThenByDescending(v => v.PublishedAtUtc)
             .ThenByDescending(v => v.ViewCount)
             .Take(maxResults)
             .ToListAsync(cancellationToken);
@@ -247,14 +278,27 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
         return false;
     }
 
-    private static Expression<Func<CatalogVideo, bool>> BuildKeywordFilterExpression(string[] terms)
+    private static (
+        Expression<Func<CatalogVideo, bool>> Filter,
+        Expression<Func<CatalogVideo, int>> TitleScore,
+        Expression<Func<CatalogVideo, int>> DescriptionScore) BuildKeywordSearchExpressions(string[] terms)
     {
         var parameter = Expression.Parameter(typeof(CatalogVideo), "v");
         var titleProp = Expression.Property(parameter, nameof(CatalogVideo.Title));
         var descProp = Expression.Property(parameter, nameof(CatalogVideo.Description));
+        var substringMethod = typeof(string).GetMethod(nameof(string.Substring), [typeof(int), typeof(int)])!;
+        var descPrefixExpr = Expression.Call(
+            descProp,
+            substringMethod,
+            Expression.Constant(0),
+            Expression.Constant(DescriptionMatchPrefixLength));
         var containsMethod = typeof(string).GetMethod(nameof(string.Contains), [typeof(string)])!;
+        var oneExpr = Expression.Constant(1);
+        var zeroExpr = Expression.Constant(0);
 
-        Expression? combined = null;
+        Expression? anyTitleHit = null;
+        Expression? titleScoreSum = null;
+        Expression? descScoreSum = null;
 
         foreach (var term in terms)
         {
@@ -263,12 +307,59 @@ public sealed class VideoCatalogRepository(ApplicationDbContext dbContext)
             var termExpression = termLambda.Body;
 
             var titleContains = Expression.Call(titleProp, containsMethod, termExpression);
-            var descContains = Expression.Call(descProp, containsMethod, termExpression);
-            var termMatch = Expression.OrElse(titleContains, descContains);
+            var descContains = Expression.Call(descPrefixExpr, containsMethod, termExpression);
 
-            combined = combined is null ? termMatch : Expression.OrElse(combined, termMatch);
+            anyTitleHit = anyTitleHit is null ? titleContains : Expression.OrElse(anyTitleHit, titleContains);
+
+            var titleHitScore = Expression.Condition(titleContains, oneExpr, zeroExpr);
+            var descHitScore = Expression.Condition(descContains, oneExpr, zeroExpr);
+
+            titleScoreSum = titleScoreSum is null ? titleHitScore : Expression.Add(titleScoreSum, titleHitScore);
+            descScoreSum = descScoreSum is null ? descHitScore : Expression.Add(descScoreSum, descHitScore);
         }
 
-        return Expression.Lambda<Func<CatalogVideo, bool>>(combined!, parameter);
+        // Single-token queries require a Title match to prevent noisy single-word description matches;
+        // multi-token queries match >= 1 token in Title OR >= 2 distinct tokens in the Description prefix.
+        var filterBody = terms.Length == 1
+            ? anyTitleHit!
+            : Expression.OrElse(
+                anyTitleHit!,
+                Expression.GreaterThanOrEqual(descScoreSum!, Expression.Constant(2)));
+
+        return (
+            Expression.Lambda<Func<CatalogVideo, bool>>(filterBody, parameter),
+            Expression.Lambda<Func<CatalogVideo, int>>(titleScoreSum!, parameter),
+            Expression.Lambda<Func<CatalogVideo, int>>(descScoreSum!, parameter));
+    }
+
+    private static string GetDescriptionPrefix(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+        {
+            return string.Empty;
+        }
+
+        return description.Length <= DescriptionMatchPrefixLength
+            ? description
+            : description[..DescriptionMatchPrefixLength];
+    }
+
+    private static int CountDistinctTermMatches(string? text, string[] terms)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+
+        var count = 0;
+        foreach (var term in terms)
+        {
+            if (text.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 }

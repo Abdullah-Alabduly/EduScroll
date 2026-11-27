@@ -67,6 +67,7 @@ public sealed class YouTubeSearchFallbackClientTests
         Assert.Equal("video", query["type"]);
         Assert.Equal("true", query["videoEmbeddable"]);
         Assert.Equal("strict", query["safeSearch"]);
+        Assert.Equal("short", query["videoDuration"]);
         Assert.Equal("en", query["relevanceLanguage"]);
         Assert.Equal("eigenvalues visual", query["q"]);
         Assert.Equal("10", query["maxResults"]);
@@ -81,6 +82,34 @@ public sealed class YouTubeSearchFallbackClientTests
         Assert.Equal("https://i.ytimg.com/vi/vidSearch1/hqdefault.jpg", item.ThumbnailUrl);
         Assert.Equal("en", item.Language);
         Assert.Equal(new DateTimeOffset(2026, 11, 20, 10, 0, 0, TimeSpan.Zero), item.PublishedAtUtc);
+    }
+
+    [Fact]
+    public async Task SearchVideosAsync_WithAnyOrCustomDuration_ShouldOmitOrNormalizeVideoDurationQueryParam()
+    {
+        Uri? anyUri = null;
+        var anyClient = CreateClient((req, _) =>
+        {
+            anyUri = req.RequestUri;
+            return Task.FromResult(JsonResponse(HttpStatusCode.OK, """{"items":[]}"""));
+        }, searchVideoDuration: "any");
+
+        await anyClient.SearchVideosAsync("linear algebra", "en", 5, CancellationToken.None);
+        Assert.NotNull(anyUri);
+        var anyQuery = ParseQuery(anyUri!);
+        Assert.False(anyQuery.ContainsKey("videoDuration"));
+
+        Uri? mediumUri = null;
+        var mediumClient = CreateClient((req, _) =>
+        {
+            mediumUri = req.RequestUri;
+            return Task.FromResult(JsonResponse(HttpStatusCode.OK, """{"items":[]}"""));
+        }, searchVideoDuration: " MEDIUM ");
+
+        await mediumClient.SearchVideosAsync("linear algebra", "en", 5, CancellationToken.None);
+        Assert.NotNull(mediumUri);
+        var mediumQuery = ParseQuery(mediumUri!);
+        Assert.Equal("medium", mediumQuery["videoDuration"]);
     }
 
     [Fact]
@@ -225,6 +254,7 @@ public sealed class YouTubeSearchFallbackClientTests
         string? apiKey = "test-api-key",
         int timeoutSeconds = 10,
         int maxRetries = 1,
+        string searchVideoDuration = "short",
         ILogger<YouTubeSearchFallbackClient>? logger = null)
     {
         var options = Options.Create(new YouTubeOptions
@@ -234,7 +264,8 @@ public sealed class YouTubeSearchFallbackClientTests
             ApiKey = apiKey,
             TimeoutSeconds = timeoutSeconds,
             MaxRetries = maxRetries,
-            RetryBaseDelayMilliseconds = 5
+            RetryBaseDelayMilliseconds = 5,
+            SearchVideoDuration = searchVideoDuration
         });
 
         var httpClient = new HttpClient(new StubHttpMessageHandler(handler));
